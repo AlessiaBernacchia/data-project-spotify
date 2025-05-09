@@ -8,27 +8,56 @@ output: html_notebook
 Authors: [Bernacchia Alessia](https://github.com/AlessiaBernacchia), [Pioda Tommaso](https://github.com/Thetommigun432), [Villani Giacomo](https://github.com/DownToTheGround)
 
 ```{r}
-# Get the Data
+library(readr)
+library(dplyr)
 
-# Read in with tidytuesdayR package 
-install.packages("tidytuesdayR")
-# This loads the readme and all the datasets for the week of interest
+billboard <- read_csv("billboard.csv", 
+                           col_types = cols(url = col_skip(), 
+                            song = col_skip(), song = col_skip(), 
+                            performer = col_skip(), 
+                            instance = col_skip()
+                            ))
 
-# Either ISO-8601 date or year/week works!
+audio_features <- na.omit(audio_features)
 
-tuesdata <- tidytuesdayR::tt_load('2021-09-14')
-tuesdata <- tidytuesdayR::tt_load(2021, week = 38)
+audio_features <- read_csv("audio_features.csv", 
+                           col_types = cols(song_id = col_skip(), 
+                            performer = col_skip(), song = col_skip(), 
+                            spotify_genre = col_skip(), 
+                            spotify_track_preview_url = col_skip(),
+                            spotify_track_explicit = col_skip(),
+                            spotify_track_album = col_skip(),
+                            spotify_track_album = col_skip(),
+                            spotify_track_id = col_skip()
+                            ))
 
-billboard <- tuesdata$billboard
+audio_features <- na.omit(audio_features)
 
-# Or read in the data manually
-
-billboard <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2021/2021-09-14/billboard.csv')
-
+print(head(audio_features,10))   
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+```{r}
+hist(audio_features$energy)
+```
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+```{r}
+hist(audio_features$loudness)
+```
+
+```{r}
+hist(audio_features$speechiness)
+```
+
+```{r}
+hist(audio_features$tempo)
+```
+
+```{r}
+hist(audio_features$spotify_track_popularity)
+```
+
+```{r}
+hist(billboard$peak_position)
+```
+
