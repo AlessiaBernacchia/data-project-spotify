@@ -59,7 +59,7 @@ full_data_clean <- full_data %>%
 full_data_clean <- full_data_clean %>%
   mutate(top30 = ifelse(week_position <= 30, 1, 0))
 
-full_data_clean <- full_data_clean %>% select(-c(song_id, week_id))
+full_data_clean <- full_data_clean %>% select(-c(song_id, week_id, week_position))
 
 print(colSums(is.na(full_data_clean)))
 ```
@@ -94,7 +94,7 @@ hist(full_data_clean$top30)
 ```
 
 ```{r}
-set.seed(1)
+set.seed(42)
 full_data_clean$top30 <- as.factor(full_data_clean$top30)
 spotify_train_test <- full_data_clean |> initial_split(prop =  0.7)
 spotify_train <- training(spotify_train_test); 
@@ -103,7 +103,7 @@ spotify_test  <- testing(spotify_train_test)
 
 ```{r}
 rand_forest_spec <- 
-  rand_forest(mtry = 5) |>  
+  rand_forest(mtry = 2) |>  
   set_engine('randomForest') |> 
   set_mode('classification')
 
@@ -128,6 +128,10 @@ cm_rF <- spotify_test_rf |>
            estimate=.pred_class)
 cm_rF
 ```
+```{r}
+head(summary(cm_rF),4)
+```
+
 ```{r}
 roc_rF<-roc_curve(spotify_test_rf,
           top30,
