@@ -7,9 +7,11 @@ output: html_notebook
 
 Authors: [Bernacchia Alessia](https://github.com/AlessiaBernacchia), [Pioda Tommaso](https://github.com/Thetommigun432), [Villani Giacomo](https://github.com/DownToTheGround)
 
+
 ```{r}
 library(readr)
 library(dplyr)
+library(tidymodels)
 
 billboard <- read_csv("billboard.csv", 
                            col_types = cols(url = col_skip(), 
@@ -17,8 +19,6 @@ billboard <- read_csv("billboard.csv",
                             performer = col_skip(), 
                             instance = col_skip()
                             ))
-
-audio_features <- na.omit(audio_features)
 
 audio_features <- read_csv("audio_features.csv", 
                            col_types = cols(song_id = col_skip(), 
@@ -33,7 +33,35 @@ audio_features <- read_csv("audio_features.csv",
 
 audio_features <- na.omit(audio_features)
 
-print(head(audio_features,10))   
+print(head(audio_features,10))
+
+audio_features_g <- read_csv("audio_features.csv", 
+                           col_types = cols( 
+                            performer = col_skip(), song = col_skip(), 
+                            spotify_genre = col_skip(), 
+                            spotify_track_preview_url = col_skip(),
+                            spotify_track_explicit = col_skip(),
+                            spotify_track_album = col_skip(),
+                            spotify_track_album = col_skip(),
+                            spotify_track_id = col_skip()
+                            ))
+
+audio_features_g <- na.omit(audio_features_g)
+
+
+full_data <- left_join(billboard, audio_features_g, by = "song_id")
+
+full_data$previous_week_position[is.na(full_data$previous_week_position)] <- 0
+
+full_data_clean <- full_data %>%
+  filter(!is.na(spotify_track_popularity))
+
+full_data_clean <- full_data_clean %>%
+  mutate(top30 = ifelse(week_position <= 30, 1, 0))
+
+full_data_clean <- full_data_clean %>% select(-c(song_id, week_id))
+
+print(colSums(is.na(full_data_clean)))
 ```
 
 
@@ -59,5 +87,51 @@ hist(audio_features$spotify_track_popularity)
 
 ```{r}
 hist(billboard$peak_position)
+```
+
+```{r}
+hist(full_data_clean$top30)
+```
+
+```{r}
+set.seed(1)
+full_data_clean$top30 <- as.factor(full_data_clean$top30)
+spotify_train_test <- full_data_clean |> initial_split(prop =  0.7)
+spotify_train <- training(spotify_train_test); 
+spotify_test  <- testing(spotify_train_test)
+```
+
+```{r}
+rand_forest_spec <- 
+  rand_forest(mtry = 5) |>  
+  set_engine('randomForest') |> 
+  set_mode('classification')
+
+rf_recipe = recipe(top30~.,
+                   data=spotify_train)
+
+rf_wf <- workflow() |> 
+  add_recipe(rf_recipe) |> 
+  add_model(rand_forest_spec)
+
+rf_wf_fit <- rf_wf |> 
+  fit(spotify_train)
+
+rf_wf_fit
+```
+```{r}
+spotify_test_rf <- rf_wf_fit |> 
+  augment(spotify_test)
+
+cm_rF <- spotify_test_rf |> 
+  conf_mat(truth=top30,
+           estimate=.pred_class)
+cm_rF
+```
+```{r}
+roc_rF<-roc_curve(spotify_test_rf,
+          top30,
+          .pred_0,event_level = "first")
+roc_rF |> autoplot()
 ```
 
