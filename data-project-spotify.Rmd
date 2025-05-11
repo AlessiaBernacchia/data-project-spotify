@@ -13,18 +13,22 @@ library(dplyr)
 library(tidymodels)
 library(vip)
 library(ggcorrplot)
+library(caret)
 
-billboard <- read_csv("billboard.csv", 
-                           col_types = cols(url = col_skip(), 
-                            song = col_skip(), song = col_skip(), 
-                            performer = col_skip(), 
+
+billboard <- read_csv("billboard.csv",
+                           col_types = cols(url = col_skip(),
+                            song = col_skip(), song = col_skip(),
+                            previous_week_position = col_skip(),
+                            performer = col_skip(),
+                            weeks_on_chart = col_skip(),
+                            peak_position = col_skip(),
                             instance = col_skip()
                             ))
 
 audio_features <- read_csv("audio_features.csv", 
                            col_types = cols( 
                             performer = col_skip(), song = col_skip(), 
-                            spotify_genre = col_skip(), 
                             spotify_track_preview_url = col_skip(),
                             spotify_track_explicit = col_skip(),
                             spotify_track_album = col_skip(),
@@ -32,27 +36,95 @@ audio_features <- read_csv("audio_features.csv",
                             spotify_track_id = col_skip()
                             ))
 
+billboard <- billboard %>%
+  group_by(song_id) %>%
+  summarise(
+    mean_week_position = round(mean(week_position, na.rm = TRUE), 0),
+    week_id = n()
+  )
+
 print(head(audio_features,10))
 ```
 
 ```{r}
-audio_features <- na.omit(audio_features) # remove all NaN
+#audio_features <- na.omit(audio_features) # remove all NaN
+
+# Step 1: Rimuovi caratteri indesiderati
+audio_features$spotify_genre <- gsub("\\[|\\]|'", "", audio_features$spotify_genre)
+
+# Step 2: Creare una lista di generi separati da virgola
+audio_features$spotify_genre <- strsplit(audio_features$spotify_genre, split = ",")
+
+# Step 3: Estrarre solo il primo genere per ogni riga
+audio_features$first_genre <- sapply(audio_features$spotify_genre, function(x) x[1])
+
+audio_features$first_genre <- sapply(audio_features$spotify_genre, function(x) {
+  if (length(x) == 0) {
+    return("others")
+  } else {
+    return(x[1])
+  }
+})
+
+# Conta la frequenza di ciascun valore nella colonna 'first_genre'
+genre_counts <- table(audio_features$first_genre)
+
+# Identifica i generi con meno di 50 occorrenze
+low_count_genres <- names(genre_counts[genre_counts < 200])
+
+# Sostituisci i generi con meno di 50 occorrenze con "others"
+audio_features$first_genre <- ifelse(audio_features$first_genre %in% low_count_genres, "others", audio_features$first_genre)
+
+# Ricontrolla le frequenze dopo il raggruppamento
+genre_counts_after_grouping <- table(audio_features$first_genre)
+audio_features <- subset(audio_features, select = -c(spotify_genre))
+
+
+# 1. Assicurati di usare la colonna aggiornata
+df <- data.frame(first_genre = audio_features$first_genre)
+
+# 2. Crea i dummy variables (one-hot encoding)
+dummy <- dummyVars(~ first_genre, data = df)
+final_df <- data.frame(predict(dummy, newdata = df))  # <- Qui dovevi usare final_df
+
+# 3. Unisci con il dataset originale
+audio_features_encoded <- bind_cols(
+  audio_features %>% select(-first_genre),
+  final_df
+)
+
+audio_features <- na.omit(audio_features)
 
 
 full_data <- left_join(billboard, audio_features, by = "song_id") #merge datasets
 
-full_data$previous_week_position[is.na(full_data$previous_week_position)] <- 0 #substitute NaN with 0
+#full_data$previous_week_position[is.na(full_data$previous_week_position)] <- 0
 
 #create the new variable top10: whether a song is in the top 10
 full_data_clean <- full_data %>%
   filter(!is.na(spotify_track_popularity)) 
 
 full_data_clean <- full_data_clean %>%
-  mutate(top10 = ifelse(week_position <= 10, 1, 0))
+  mutate(top10 = ifelse(mean_week_position <= 30, 1, 0))
 
-#remove useless features (usefull only)
-full_data_clean <- full_data_clean %>% select(-c(song_id, week_id, week_position))
-#print number of NaN for each column
+
+full_data_clean <- full_data_clean %>% select(-c(song_id, mean_week_position))
+
+full_data_clean$spotify_track_popularity <- sapply(full_data_clean$spotify_track_popularity, function(x) {
+  if (x <= 25) {
+    return("low")
+  }
+  if (x > 25 & x <= 50) {
+    return("medium")
+  }
+  if (x > 50 & x <= 75) {
+    return("high")
+  }
+    if (x > 75 & x <= 100) {
+    return("very high")
+  } 
+})
+
 print(colSums(is.na(full_data_clean)))
 ```
 
@@ -82,18 +154,6 @@ hist(audio_features$loudness)
 
 ```{r}
 hist(audio_features$speechiness)
-```
-
-```{r}
-hist(audio_features$tempo)
-```
-
-```{r}
-hist(audio_features$spotify_track_popularity)
-```
-
-```{r}
-hist(billboard$peak_position)
 ```
 
 ```{r}
