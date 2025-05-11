@@ -8,56 +8,221 @@ output: html_notebook
 Authors: [Bernacchia Alessia](https://github.com/AlessiaBernacchia), [Pioda Tommaso](https://github.com/Thetommigun432), [Villani Giacomo](https://github.com/DownToTheGround)
 
 ```{r}
+library(vip)
 library(readr)
 library(dplyr)
+library(tidymodels)
+library(ggplot2)
+library(tidymodels)
+library(ggcorrplot)
+library(vip)
+library(rsample)
+library(tidyr)
+library(stringr)
+library(purrr)
+library(caret)
+library(kknn)
+
 
 billboard <- read_csv("billboard.csv", 
                            col_types = cols(url = col_skip(), 
-                            song = col_skip(), song = col_skip(), 
-                            performer = col_skip(), 
+                            song = col_skip(),
                             instance = col_skip()
                             ))
 
-audio_features <- na.omit(audio_features)
-
 audio_features <- read_csv("audio_features.csv", 
                            col_types = cols(song_id = col_skip(), 
-                            performer = col_skip(), song = col_skip(), 
-                            spotify_genre = col_skip(), 
+                            performer = col_skip(), 
+                            song = col_skip(), 
+                            time_signature = col_skip(), 
                             spotify_track_preview_url = col_skip(),
                             spotify_track_explicit = col_skip(),
-                            spotify_track_album = col_skip(),
                             spotify_track_album = col_skip(),
                             spotify_track_id = col_skip()
                             ))
 
+audio_features <- as_tibble(audio_features)
 audio_features <- na.omit(audio_features)
-
-print(head(audio_features,10))   
 ```
 
 
 ```{r}
-hist(audio_features$energy)
+billboard
+```
+
+
+```{r}
+# Step 1: Rimuovi caratteri indesiderati
+audio_features$spotify_genre <- gsub("\\[|\\]|'", "", audio_features$spotify_genre)
+
+# Step 2: Creare una lista di generi separati da virgola
+audio_features$spotify_genre <- strsplit(audio_features$spotify_genre, split = ",")
+
+# Step 3: Estrarre solo il primo genere per ogni riga
+audio_features$first_genre <- sapply(audio_features$spotify_genre, function(x) x[1])
+
+audio_features$first_genre <- sapply(audio_features$spotify_genre, function(x) {
+  if (length(x) == 0) {
+    return("others")
+  } else {
+    return(x[1])
+  }
+})
+
+a='
+audio_features$spotify_track_popularity <- sapply(audio_features$spotify_track_popularity, function(x) {
+  if (x <= 25) {
+    return("low")
+  }
+  if (x > 25 & x <= 50) {
+    return("medium")
+  }
+  if (x > 50 & x <= 75) {
+    return("high")
+  }
+    if (x > 75 & x <= 100) {
+    return("very high")
+  } 
+})
+'
 ```
 
 ```{r}
-hist(audio_features$loudness)
+# Conta la frequenza di ciascun valore nella colonna 'first_genre'
+genre_counts <- table(audio_features$first_genre)
+
+# Identifica i generi con meno di 50 occorrenze
+low_count_genres <- names(genre_counts[genre_counts < 200])
+
+# Sostituisci i generi con meno di 50 occorrenze con "others"
+audio_features$first_genre <- ifelse(audio_features$first_genre %in% low_count_genres, "others", audio_features$first_genre)
+
+# Ricontrolla le frequenze dopo il raggruppamento
+genre_counts_after_grouping <- table(audio_features$first_genre)
+audio_features <- subset(audio_features, select = -c(spotify_genre))
 ```
 
 ```{r}
-hist(audio_features$speechiness)
+# 1. Assicurati di usare la colonna aggiornata
+df <- data.frame(first_genre = audio_features$first_genre)
+
+# 2. Crea i dummy variables (one-hot encoding)
+dummy <- dummyVars(~ first_genre, data = df)
+final_df <- data.frame(predict(dummy, newdata = df))  # <- Qui dovevi usare final_df
+
+# 3. Unisci con il dataset originale
+audio_features_encoded <- bind_cols(
+  audio_features %>% select(-first_genre),
+  final_df
+)
 ```
 
 ```{r}
-hist(audio_features$tempo)
+# Seleziona solo le variabili numeriche
+numeric_data <- audio_features %>%
+  select(where(is.numeric))
+
+# Calcola la matrice di correlazione
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+
+ggcorrplot(cor_matrix, 
+           method = "circle",      # o "square"
+           type = "lower",         # solo triangolo inferiore         
+           colors = c("red", "white", "blue"),  # come in seaborn
+           title = "Matrice di Correlazione",
+           ggtheme = ggplot2::theme_minimal())
+```
+```{r}
+audio_features_encoded
 ```
 
 ```{r}
-hist(audio_features$spotify_track_popularity)
+
+set.seed(45)
+split <- initial_split(audio_features_encoded, prop = 0.8)
+train_data <- training(split)
+test_data  <- testing(split)
+
+# 1. Prepara il recipe (già fatto)
+recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data)
+
+task = 'regression'
+
+# 2. Definisci i modelli
+models <- list(
+  rf = rand_forest(mtry = 5) %>% set_engine("randomForest") %>% set_mode(task),
+  #lm = linear_reg() %>% set_engine("lm") %>% set_mode(task),
+  xgb = boost_tree(trees = 1000, tree_depth = 10) %>% set_engine("xgboost") %>% set_mode(task),
+  knn = nearest_neighbor(neighbors = 5) %>% set_engine("kknn") %>% set_mode(task)
+)
+
+# 3. Crea una lista di workflow
+workflows_list <- purrr::map(models, ~ workflow() %>% add_model(.x) %>% add_recipe(recipe_spec))
+
+# 4. Fitta tutti i modelli
+fitted_models <- purrr::map(workflows_list, ~ fit(.x, data = train_data))
+
+# 5. Valuta su test set
+results <- purrr::map(fitted_models, ~ {
+  predict(.x, test_data) %>%
+    bind_cols(test_data) %>%
+    metrics(truth = spotify_track_popularity, estimate = .pred)
+})
+
+# 6. Combina risultati in una tabella leggibile
+results_df <- bind_rows(results, .id = "model")
+
+results_df %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
+
+print(results_df)
+```
+
+
+```{r}
+results <- list()
+
+for (model_name in names(fitted_models)) {
+  model <- models[[model_name]]
+  
+  wf <- workflow() %>%
+    add_model(model) %>%
+    add_recipe(recipe_spec)
+  
+  fit_model <- fit(wf, data = train_data)
+  
+  preds <- predict(fit_model, test_data) %>%
+    bind_cols(test_data) %>%
+    mutate(model = model_name)
+  
+  results[[model_name]] <- preds
+}
+
+# Unione di tutte le predizioni
+all_predictions <- bind_rows(results)
+
 ```
 
 ```{r}
-hist(billboard$peak_position)
+
+ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
+  geom_point(alpha = 0.4, color = "steelblue") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~model, scales = "free") +
+  labs(
+    title = "Predizioni vs Valori Reali per Modello",
+    x = "Valori Reali (spotify_track_popularity)",
+    y = "Predizioni"
+  ) +
+  theme_minimal()
 ```
+
+```{r}
+vip(fitted_model)
+```
+
+
+
+
 
