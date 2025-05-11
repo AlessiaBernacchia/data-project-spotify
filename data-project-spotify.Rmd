@@ -7,13 +7,12 @@ output: html_notebook
 
 Authors: [Bernacchia Alessia](https://github.com/AlessiaBernacchia), [Pioda Tommaso](https://github.com/Thetommigun432), [Villani Giacomo](https://github.com/DownToTheGround)
 
-
-
 ```{r}
 library(readr)
 library(dplyr)
 library(tidymodels)
 library(vip)
+library(ggcorrplot)
 
 billboard <- read_csv("billboard.csv", 
                            col_types = cols(url = col_skip(), 
@@ -34,25 +33,44 @@ audio_features <- read_csv("audio_features.csv",
                             ))
 
 print(head(audio_features,10))
+```
 
-audio_features <- na.omit(audio_features)
+```{r}
+audio_features <- na.omit(audio_features) # remove all NaN
 
 
-full_data <- left_join(billboard, audio_features, by = "song_id")
+full_data <- left_join(billboard, audio_features, by = "song_id") #merge datasets
 
-full_data$previous_week_position[is.na(full_data$previous_week_position)] <- 0
+full_data$previous_week_position[is.na(full_data$previous_week_position)] <- 0 #substitute NaN with 0
 
+#create the new variable top10: whether a song is in the top 10
 full_data_clean <- full_data %>%
-  filter(!is.na(spotify_track_popularity))
+  filter(!is.na(spotify_track_popularity)) 
 
 full_data_clean <- full_data_clean %>%
   mutate(top10 = ifelse(week_position <= 10, 1, 0))
 
+#remove useless features (usefull only)
 full_data_clean <- full_data_clean %>% select(-c(song_id, week_id, week_position))
-
+#print number of NaN for each column
 print(colSums(is.na(full_data_clean)))
 ```
 
+```{r}
+# select only numerical data
+numeric_data <- full_data_clean %>%
+  select(where(is.numeric))
+
+# correlation matrix
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+
+ggcorrplot(cor_matrix, 
+           method = "square",      # or "circle"
+           type = "lower",         # only lower triangle        
+           colors = c("red", "white", "blue"),  # come in seaborn
+           title = "Correlation Matrix",
+           ggtheme = ggplot2::theme_minimal())
+```
 
 ```{r}
 hist(audio_features$energy)
@@ -108,6 +126,7 @@ rf_wf_fit <- rf_wf |>
 
 rf_wf_fit
 ```
+
 ```{r}
 spotify_test_rf <- rf_wf_fit |> 
   augment(spotify_test)
@@ -117,6 +136,7 @@ cm_rF <- spotify_test_rf |>
            estimate=.pred_class)
 cm_rF
 ```
+
 ```{r}
 head(summary(cm_rF),4)
 ```
@@ -133,4 +153,3 @@ rf_wf_fit |>
   extract_fit_engine() |> 
   vip()
 ```
-
