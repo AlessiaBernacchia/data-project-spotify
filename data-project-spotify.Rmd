@@ -157,18 +157,18 @@ encode_spotify_popularity <- function(df, column = "spotify_track_popularity") {
 # plots the confusion matrix
 plot_conf_matrix <- function(conf_matrix_object, title = "Confusion Matrix") {
   
-  # Converti confusion matrix in dataframe
+  # converts confusion matrix into dataframe
   cm_df <- as.data.frame(conf_matrix_object$table)
   
-  # Identifica automaticamente i nomi delle colonne (Truth, Prediction, Freq)
+  # find columns names (Truth, Prediction, Freq)
   colnames(cm_df) <- tolower(colnames(cm_df)) # rende tutto minuscolo
   
-  # Rinomina sempre in modo uniforme
+  # rename them
   names(cm_df)[names(cm_df) %in% c("reference", "truth")] <- "Actual"
   names(cm_df)[names(cm_df) == "prediction"] <- "Predicted"
   names(cm_df)[names(cm_df) %in% c("freq", "n")] <- "Freq"
   
-  # Plot ggplot2
+  # plot
   p <- ggplot(cm_df, aes(x = Predicted, y = Actual, fill = Freq)) +
     geom_tile(color = "white", linewidth = 0.5) +
     geom_text(aes(label = Freq), size = 5, color = "black") +
@@ -248,9 +248,9 @@ ncol(full_data_clean)
 Distribution of numeric data
 
 ```{r}
-numeric_data <- full_data_clean %>% select(where(is.numeric))
+numeric_data <- full_data_clean |> select(where(is.numeric))
 
-numeric_data_long <- numeric_data %>% pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
+numeric_data_long <- numeric_data |> pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
 
 # histograms distribution facet
 ggplot(numeric_data_long, aes(x = value)) +
@@ -263,15 +263,15 @@ ggplot(numeric_data_long, aes(x = value)) +
 Distribution of categorical data (due the fact there are too many unique values, we choose to filter and observe only the first 50 most frequent variables)
 
 ```{r}
-categorical_data <- full_data_clean %>% select(where(~ !is.numeric(.)))
+categorical_data <- full_data_clean |> select(where(~ !is.numeric(.)))
 
-categorical_data_long <- categorical_data %>% pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
+categorical_data_long <- categorical_data |> pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
 
 # select top 50
-categorical_data_top50 <- categorical_data_long %>%
-  group_by(variable, value) %>%
-  summarise(count = n(), .groups = "drop") %>%
-  group_by(variable) %>%
+categorical_data_top50 <- categorical_data_long |>
+  group_by(variable, value) |>
+  summarise(count = n(), .groups = "drop") |>
+  group_by(variable) |>
   slice_max(order_by = count, n = 50)
 
 # barplot distribution facet
@@ -329,6 +329,7 @@ ggcorrplot(cor_matrix,
            colors = c("red", "white", "blue"),
            title = "Correlation Matrix",
            ggtheme = ggplot2::theme_minimal())
+#ggsave("0_numeric_heatmap.png", width = 12, height = 16)
 ```
 
 ```{r}
@@ -373,45 +374,9 @@ regression_data <- full_data_aggregate %>% select(-c(song_id, min_position, max_
 print(head(regression_data,5))
 ```
 
-Encode the genre column
-```{r}
-regression_data <- extract_first_genre(regression_data)
 
-```
-
-```{r}
-# # removes useless not required characters
-# regression_data$spotify_genre <- gsub("\\[|\\]|'", "", regression_data$spotify_genre)
-# # create a list, with div = ,
-# regression_data$spotify_genre <- strsplit(regression_data$spotify_genre, split = ",")
-# # extract only the first genre for each line
-# regression_data$first_genre <- sapply(regression_data$spotify_genre, function(x) {
-#   if (length(x) == 0) {
-#     return("others")
-#   } else {
-#     return(x[1])
-#   }
-# })
-# # convert to categorical value
-# regression_data$first_genre <- as.factor(regression_data$first_genre)
-
-# audio_features$spotify_track_popularity <- sapply(audio_features$spotify_track_popularity, function(x) {
-#   if (x <= 25) {
-#     return("low")
-#   }
-#   if (x > 25 & x <= 50) {
-#     return("medium")
-#   }
-#   if (x > 50 & x <= 75) {
-#     return("high")
-#   }
-#     if (x > 75 & x <= 100) {
-#     return("very high")
-#   } })
-```
 
 select only important genres (\>=200 density)
-
 
 ```{r}
 # # count frequency of each sample in first_genre column
@@ -446,6 +411,7 @@ select only important genres (\>=200 density)
 One hot encoding of the 15 most frequent genre
 
 ```{r}
+regression_data <- extract_first_genre(regression_data)
 regression_data_encoded <- process_and_encode_genre(regression_data, top_n = 15)
 ```
 
@@ -721,158 +687,52 @@ Remove unrelevant features
 regression_data <- full_data_aggregate %>% select(-c(song_id))
 print(head(regression_data,5))
 ```
-
+one hot encoding of the most 15 important genres
 ```{r}
-# removes useless not required characters
-regression_data$spotify_genre <- gsub("\\[|\\]|'", "", regression_data$spotify_genre)
-# create a list, with div = ,
-regression_data$spotify_genre <- strsplit(regression_data$spotify_genre, split = ",")
-# extract only the first genre for each line
-regression_data$first_genre <- sapply(regression_data$spotify_genre, function(x) x[1])
-
-regression_data$first_genre <- sapply(regression_data$spotify_genre, function(x) {
-  if (length(x) == 0) {
-    return("others")
-  } else {
-    return(x[1])
-  }
-})
-
-# regression_data$spotify_track_popularity <- sapply(audio_features$spotify_track_popularity, function(x) {
-#   if (x <= 25) {
-#     return("low")
-#   }
-#   if (x > 25 & x <= 50) {
-#     return("medium")
-#   }
-#   if (x > 50 & x <= 75) {
-#     return("high")
-#   }
-#     if (x > 75 & x <= 100) {
-#     return("very high")
-#   } })
-```
-
-select only important genres (\>=200 density)
-
-```{r}
-
-# # count frequency of each sample in first_genre column
-# genre_counts <- table(regression_data$first_genre)
-# 
-# # identify genres with less than 200 samples
-# low_count_genres <- names(genre_counts[genre_counts < 300])
-# 
-# # substitute those genres with "others"
-# regression_data$first_genre <- ifelse(regression_data$first_genre %in% low_count_genres, "others", regression_data$first_genre)
-# 
-# # verify the counts after grouping
-# genre_counts_after_grouping <- table(regression_data$first_genre)
-# 
-# # drop original spotify_genre column
-# regression_data <- subset(regression_data, select = -c(spotify_genre))
-# 
-# # ensure the column is upgraded for dummyVars
-# df <- data.frame(first_genre = regression_data$first_genre)
-# 
-# # create dummy variables (one-hot encoding)
-# dummy <- dummyVars(~ first_genre, data = df)
-# final_df <- data.frame(predict(dummy, newdata = df))
-# 
-# # bind dummy variables to the rest of regression_data
-# regression_data_encoded_1 <- bind_cols(
-#   regression_data %>% select(-first_genre),
-#   final_df
-# )
-```
-
-```{r}
-# frequency counter
-genre_counts <- table(regression_data$first_genre)
-
-# order based in descrescent order the frequency
-genre_counts_sorted <- sort(genre_counts, decreasing = TRUE)
-
-# take only first 15 genres
-top_15_genres <- names(genre_counts_sorted)[1:15]
-
-# named others as "others"
-regression_data$first_genre <- ifelse(
-  regression_data$first_genre %in% top_15_genres,
-  regression_data$first_genre,
-  "others"
-)
-```
-
-```{r}
-print(head(regression_data,5))
-```
-
-```{r}
-
-# verify
-genre_counts_after_grouping <- table(regression_data$first_genre)
-
-# drop original spotify_genre column
-regression_data <- subset(regression_data, select = -c(spotify_genre))
-
-# ensure the column is upgraded for dummyVars
-df <- data.frame(first_genre = regression_data$first_genre)
-
-# create dummy variables (one-hot encoding)
-dummy <- dummyVars(~ first_genre, data = df)
-final_df <- data.frame(predict(dummy, newdata = df))
-
-# bind dummy variables to the rest of regression_data (without first_genre)
-regression_data_encoded <- bind_cols(
-  regression_data %>% select(-first_genre),
-  final_df
-)
-
+regression_data <- extract_first_genre(regression_data)
+regression_data_encoded <- process_and_encode_genre(regression_data, top_n = 15)
 ```
 
 ```{r}
 print(head(regression_data_encoded, 5))
 ```
 
-### Regression
+#### Regression
 
 ```{r}
-
 set.seed(45)
 split <- initial_split(regression_data_encoded, prop = 0.8)
 train_data <- training(split)
 test_data  <- testing(split)
 
-# 1. Prepara il recipe (già fatto)
-#recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data)
+# recipe
 recipe_spec <- recipe(final_position ~ ., data = train_data) %>%
   step_dummy(all_nominal_predictors(), one_hot = TRUE)
 
 task = 'regression'
 
-# 2. Definisci i modelli
+# models
 models <- list(
   rf = rand_forest(mtry = 5) %>% set_engine("randomForest") %>% set_mode(task),
   #lm = linear_reg() %>% set_engine("lm") %>% set_mode(task),
-  xgb = boost_tree(trees = 1000, tree_depth = 10) %>% set_engine("xgboost") %>% set_mode(task),
+  xgb = boost_tree(trees = 100, tree_depth = 10) %>% set_engine("xgboost") %>% set_mode(task),
   knn = nearest_neighbor(neighbors = 5) %>% set_engine("kknn") %>% set_mode(task)
 )
 
-# 3. Crea una lista di workflow
+# workflow
 workflows_list <- purrr::map(models, ~ workflow() %>% add_model(.x) %>% add_recipe(recipe_spec))
 
-# 4. Fitta tutti i modelli
+# train models
 fitted_models <- purrr::map(workflows_list, ~ fit(.x, data = train_data))
 
-# 5. Valuta su test set
+# evaluation
 results <- purrr::map(fitted_models, ~ {
   predict(.x, test_data) %>%
     bind_cols(test_data) %>%
     metrics(truth = final_position, estimate = .pred)
 })
 
-# 6. Combina risultati in una tabella leggibile
+# results
 results_df <- bind_rows(results, .id = "model")
 
 results_df %>%
@@ -901,126 +761,70 @@ for (model_name in names(fitted_models)) {
   results[[model_name]] <- preds
 }
 
-# Unione di tutte le predizioni
 all_predictions <- bind_rows(results)
 
 ```
 
 ```{r}
-
 ggplot(all_predictions, aes(x = final_position, y = .pred)) +
   geom_point(alpha = 0.4, color = "steelblue") +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
   facet_wrap(~model, scales = "free") +
   labs(
-    title = "Predizioni vs Valori Reali per Modello",
-    x = "Valori Reali (spotify_track_popularity)",
-    y = "Predizioni"
+    title = "Predictions vs Real Values per Modello",
+    x = "Real Values (spotify_track_popularity)",
+    y = "Predictions"
   ) +
   theme_minimal()
 ```
 
 ```{r}
-#vip(fitted_models)
+# VIP plot list
+vip_plots <- list()
+
+# Random Forest
+rf_fit <- extract_fit_parsnip(fitted_models$rf)
+if (inherits(rf_fit$fit, "randomForest")) {
+  vip_plots$rf <- vip(rf_fit$fit, num_features = 15) + ggtitle("Random Forest - Variable Importance")
+}
+
+# XGBoost
+xgb_fit <- extract_fit_parsnip(fitted_models$xgb)
+if (inherits(xgb_fit$fit, "xgb.Booster")) {
+  vip_plots$xgb <- vip(xgb_fit$fit, num_features = 15) + ggtitle("XGBoost - Variable Importance")
+}
+
+# visualize plots
+library(patchwork)
+
+# show them
+if (length(vip_plots) == 2) {
+  vip_plots$rf + vip_plots$xgb
+} else {
+  # if only one is possible
+  vip_plots[[1]]
+}
 ```
 
-```{r}
-# if (inherits(fitted_models$rf$fit, "randomForest")) {
-#   vip(fitted_models$rf$fit)
-# }
-```
+### Classification- predict whether a sign will be in the top 30
 
-## Classification- predict whether a sogn will be in the top 10
-
-### Preprocessing
+#### Preprocessing
 
 ```{r}
-classification_data <- full_data_aggregate %>% select(-c( song_id, final_position))
+classification_data <- full_data_aggregate |> select(-c( song_id))
 print(head(classification_data,5))
 ```
-
+Encode popularity
 ```{r}
-#create the new variable top10: whether a song is in the top 30
-classification_data <- classification_data %>%
+classification_data <- encode_spotify_popularity(classification_data)
+
+classification_data <- classification_data |>
   filter(!is.na(spotify_track_popularity)) 
-
-classification_data <- classification_data %>%
-  mutate(top30 = ifelse(avg_position <= 30, 1, 0))
-
-# encode popularity
-classification_data$spotify_track_popularity <- sapply(classification_data$spotify_track_popularity, function(x) {
-  if (x <= 25) {
-    return("low")
-  }
-  if (x > 25 & x <= 50) {
-    return("medium")
-  }
-  if (x > 50 & x <= 75) {
-    return("high")
-  }
-    if (x > 75 & x <= 100) {
-    return("very high")
-  } 
-})
 ```
-
+Encode genre
 ```{r}
-#remove useless features (usefull only)
-classification_data <- classification_data %>% select(-c( avg_position, min_position, max_position))
-```
-
-```{r}
-# Step 1: Rimuovi caratteri indesiderati
-classification_data$spotify_genre <- gsub("\\[|\\]|'", "", classification_data$spotify_genre)
-
-# Step 2: Creare una lista di generi separati da virgola
-classification_data$spotify_genre <- strsplit(classification_data$spotify_genre, split = ",")
-
-# Step 3: Estrarre solo il primo genere per ogni riga
-classification_data$first_genre <- sapply(classification_data$spotify_genre, function(x) x[1])
-
-classification_data$first_genre <- sapply(classification_data$spotify_genre, function(x) {
-  if (length(x) == 0) {
-    return("others")
-    } else {
-    return(x[1])
-  }
-})
-
-# frequency counter
-genre_counts <- table(classification_data$first_genre)
-
-# order based in descrescent order the frequency
-genre_counts_sorted <- sort(genre_counts, decreasing = TRUE)
-
-# take only first 15 genres
-top_15_genres <- names(genre_counts_sorted)[1:15]
-
-# named others as "others"
-classification_data$first_genre <- ifelse(
-  classification_data$first_genre %in% top_15_genres,
-  classification_data$first_genre,
-  "others"
-)
-
-# verify
-genre_counts_after_grouping <- table(classification_data$first_genre)
-
-# drop original spotify_genre column
-classification_data <- subset(classification_data, select = -c(spotify_genre))
-
-# ensure the column is upgraded for dummyVars
-df <- data.frame(first_genre = classification_data$first_genre)
-
-# create dummy variables (one-hot encoding)
-dummy <- dummyVars(~ first_genre, data = df)
-final_df <- data.frame(predict(dummy, newdata = df))
-
-# bind dummy variables to the rest of regression_data (without first_genre)
-classification_data <- bind_cols(
-  classification_data %>% select(-first_genre),
-  final_df
-)
+classification_data <- extract_first_genre(classification_data)
+classification_data <- process_and_encode_genre(classification_data, top_n = 5)
 ```
 
 ```{r}
@@ -1028,9 +832,21 @@ classification_data <- bind_cols(
 count_na_per_column_df(classification_data)
 ```
 
+
+
+
+```{r}
+#create the new variable top30: whether a song is in the top 30
+classification_data <- classification_data |>
+  mutate(top30 = ifelse(final_position <= 30, 1, 0))
+# remove final_position
+classification_data <- classification_data |> select(-c( final_position))
+print(head(classification_data,5))
+```
+
 ```{r}
 # select only numerical data
-numeric_data_clss <- classification_data %>%
+numeric_data_clss <- classification_data |>
   select(where(is.numeric))
 
 # correlation matrix
@@ -1039,7 +855,7 @@ cor_matrix <- cor(numeric_data_clss, use = "complete.obs")
 ggcorrplot(cor_matrix, 
            method = "square",     # or "circle"
            type = "lower",        # only lower triangle        
-           colors = c("red", "white", "blue"),  # come in seaborn
+           colors = c("red", "white", "blue"),
            title = "Correlation Matrix",
            ggtheme = ggplot2::theme_minimal())
 ```
@@ -1047,12 +863,12 @@ ggcorrplot(cor_matrix,
 ```{r}
 hist(classification_data$top30)
 ```
-
+#### Classification
 ```{r}
 set.seed(42)
 classification_data$top30 <- as.factor(classification_data$top30)
 spotify_train_test <- classification_data |> initial_split(prop =  0.7)
-spotify_train <- training(spotify_train_test); 
+spotify_train <- training(spotify_train_test) 
 spotify_test  <- testing(spotify_train_test)
 ```
 
@@ -1079,10 +895,13 @@ rf_wf_fit
 spotify_test_rf <- rf_wf_fit |> 
   augment(spotify_test)
 
+# confusion matrix
 cm_rF <- spotify_test_rf |> 
-  conf_mat(truth=top30,
-           estimate=.pred_class)
-cm_rF
+  conf_mat(truth = top30,
+           estimate = .pred_class)
+
+# visualize
+plot_conf_matrix(cm_rF, title = "Confusion Matrix - Classification Random Forest")
 ```
 
 ```{r}
