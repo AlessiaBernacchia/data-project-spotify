@@ -389,34 +389,40 @@ rf_wf_fit |>
 ```
 
 #hypotesis test
-```{r}
 
+```{r}
 funk_disco_songs <- numeric_data_clss |>
   filter(first_genrefunk == 1 | first_genredisco == 1) |>
   mutate(genre_group = ifelse(first_genrefunk == 1, "funk", "disco")) |>
   select(loudness, genre_group)
-
-null_dist <- funk_disco_songs |> 
-  specify(response = loudness, explanatory = genre_group) |> 
-  hypothesize(null = "independence") |> 
-  generate(reps = 1000, type = "permute") |> 
-  calculate(stat = "diff in means", order = c("funk", "disco"))
+```
 
 
-obs_diff <- funk_disco_songs |> 
-  specify(response = loudness, explanatory = genre_group) |> 
-  calculate(stat = "diff in means", order = c("funk", "disco"))
-
-null_dist |> 
-  visualize() +
-  shade_p_value(obs_stat = obs_diff,
-                direction = "two-sided")
-
+```{r}
+wilcox.test(loudness ~ genre_group, data = funk_disco_songs)
 
 ```
 ```{r}
-null_dist |> 
-  get_p_value(obs_stat=obs_diff,
-              direction="two-sided")
+pop_funk_songs <- numeric_data_clss |>
+  filter(first_genrepop == 1 | first_genrefunk == 1) |>
+  mutate(genre_group = ifelse(first_genrepop == 1, "pop", "funk")) |>
+  select(danceability, genre_group)
 ```
 
+
+```{r}
+wilcox.test(danceability ~ genre_group, data = pop_funk_songs)
+
+```
+```{r}
+country <- numeric_data_clss |>
+  filter(first_genrecountry == 1) |>
+  select(energy, first_genrecountry)
+```
+
+
+```{r}
+
+wilcox.test(country$energy, mu = 0.53)
+
+```
