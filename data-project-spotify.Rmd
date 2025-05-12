@@ -391,6 +391,19 @@ rf_wf_fit |>
 #hypotesis test
 
 ```{r}
+numeric_data <- regression_data |> select(where(is.numeric))
+par(mfrow = c(2,2))  # cambia a seconda del numero di variabili
+
+for (colname in names(numeric_data)) {
+  qqnorm(numeric_data[[colname]], main = paste("QQ Plot -", colname))
+  qqline(numeric_data[[colname]])
+}
+```
+
+
+
+
+```{r}
 funk_disco_songs <- numeric_data_clss |>
   filter(first_genrefunk == 1 | first_genredisco == 1) |>
   mutate(genre_group = ifelse(first_genrefunk == 1, "funk", "disco")) |>
@@ -401,6 +414,14 @@ funk_disco_songs <- numeric_data_clss |>
 ```{r}
 wilcox.test(loudness ~ genre_group, data = funk_disco_songs)
 
+funk_loudness <- funk_disco_songs$loudness[funk_disco_songs$genre_group == "funk"]
+disco_loudness <- funk_disco_songs$loudness[funk_disco_songs$genre_group == "disco"]
+
+plot(density(funk_loudness), col = "blue", lwd = 2, main = "Loudness Density: Funk vs Disco", xlab = "Loudness")
+lines(density(disco_loudness), col = "red", lwd = 2)
+
+# Aggiungi legenda
+legend("topright", legend = c("Funk", "Disco"), col = c("blue", "red"), lwd = 2)
 ```
 ```{r}
 pop_funk_songs <- numeric_data_clss |>
@@ -413,6 +434,15 @@ pop_funk_songs <- numeric_data_clss |>
 ```{r}
 wilcox.test(danceability ~ genre_group, data = pop_funk_songs)
 
+funk_danceability <- pop_funk_songs$danceability[pop_funk_songs$genre_group == "funk"]
+pop_danceability <- pop_funk_songs$danceability[pop_funk_songs$genre_group == "pop"]
+
+plot(density(funk_danceability), col = "blue", lwd = 2, main = "danceability Density: Funk vs Pop", xlab = "Loudness")
+lines(density(pop_danceability), col = "red", lwd = 2)
+
+# Aggiungi legenda
+legend("topright", legend = c("Funk", "Pop"), col = c("blue", "red"), lwd = 2)
+
 ```
 ```{r}
 country <- numeric_data_clss |>
@@ -423,6 +453,16 @@ country <- numeric_data_clss |>
 
 ```{r}
 
-wilcox.test(country$energy, mu = 0.53)
+result <- wilcox.test(country$energy, mu = 0.53)
+
+plot(density(country$energy), main = "Energy Density", xlab = "Energy", col = "steelblue")
+abline(v = 0.53, col = "red", lwd = 2, lty = 2)
+legend("topright", legend = c("Densità Energy", 
+                  "mu = 0.53", 
+                  paste("p-value =", round(result$p.value, 4))), 
+                  col = c("steelblue", "red", NA), 
+                  lwd = c(2, 2, NA), 
+                  lty = c(1, 2, NA),
+                  bty = "n")
 
 ```
