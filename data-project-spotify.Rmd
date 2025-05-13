@@ -350,7 +350,7 @@ regression_data_encoded_scaled['spotify_track_popularity'] = regression_data$spo
 
 ```{r}
 # 1. Split
-split <- initial_split(head(regression_data_encoded_scaled,100), prop = 0.8)
+split <- initial_split(head(regression_data_encoded_scaled,10000), prop = 0.8)
 #split <- initial_split(regression_data_encoded_scaled, prop = 0.8)
 train_data <- training(split)
 test_data  <- testing(split)
