@@ -920,3 +920,127 @@ rf_wf_fit |>
   extract_fit_engine() |> 
   vip()
 ```
+
+```{r}
+df_filtered <- full_data_clean |>
+  select(colnames(audio_features),song_id,week_id)
+
+df_filtered$year <- as.numeric(sub(".*/.*/", "", df_filtered$week_id))
+
+df_filtered_2000_15 <- df_filtered[df_filtered$year >= 2000 & df_filtered$year < 2015, ]
+
+df_filtered_2000_15$week_id <- NULL
+
+df_filtered_2000_15 <- unique(df_filtered_2000_15)
+
+df_filtered_2000_15_genre <- extract_first_genre(df_filtered_2000_15)
+df_filtered_2000_15_genre_encoded <- process_and_encode_genre(df_filtered_2000_15_genre, top_n = 15)
+
+df_filtered_2000_15_genre_encoded$spotify_track_duration_min <- df_filtered_2000_15_genre_encoded$spotify_track_duration_ms/60000
+
+df_filtered_2000_15_genre_encoded$spotify_track_duration_ms <- NULL
+```
+
+```{r}
+registerDoParallel(cores = parallel::detectCores() - 1)
+
+set.seed(45)
+
+regression_data_encoded_scaled <- robustHD::standardize(df_filtered_2000_15_genre_encoded %>% select(-spotify_track_popularity,-song_id))
+
+#regression_data_encoded_scaled['spotify_track_popularity'] = regression_data$spotify_track_popularity
+
+df_filtered_2000_15_genre_encoded$song_id <- NULL
+
+
+# 1. Split
+split <- initial_split(df_filtered_2000_15_genre_encoded, prop = 0.8)
+#split <- initial_split(regression_data_encoded_scaled, prop = 0.8)
+train_data <- training(split)
+test_data  <- testing(split)
+
+# 2. Recipe
+recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
+# 3. Resampling
+cv_folds <- vfold_cv(train_data, v = 5)
+
+# 4. Definisci i modelli con parametri da tunare
+models <- list(
+  rf = rand_forest(mtry = tune(), trees = 500) %>%
+    set_engine("randomForest") %>% set_mode("regression"),
+
+  xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) %>%
+    set_engine("xgboost") %>% set_mode("regression"),
+
+  knn = nearest_neighbor(neighbors = tune()) %>%
+    set_engine("kknn") %>% set_mode("regression")
+)
+
+# 5. Crea i workflow
+workflows_list <- purrr::imap(models, function(model, name) {
+  workflow() %>%
+    add_model(model) %>%
+    add_recipe(recipe_spec)
+})
+
+# 6. Tuning veloce con tune_race_anova
+tuned_models <- purrr::imap(workflows_list, function(wf, name) {
+  tune_race_anova(
+    wf,
+    resamples = cv_folds,
+    grid = 5,
+    metrics = metric_set(rmse),
+    control = control_race(verbose_elim = TRUE)
+  )
+})
+
+# 7. Estrai i migliori iperparametri
+best_models <- purrr::map(tuned_models, ~ select_best(.x))
+
+# 8. Finalizza e fitta
+final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) %>% fit(data = train_data))
+
+# 9. Valuta su test set
+results <- purrr::map(final_models, ~ {
+  predict(.x, test_data) %>%
+    bind_cols(test_data) %>%
+    metrics(truth = spotify_track_popularity, estimate = .pred)
+})
+
+# 10. Riassunto risultati RMSE
+results_df <- bind_rows(results, .id = "model") %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
+
+print(results_df)
+
+
+```
+
+```{r}
+all_predictions <- purrr::imap(final_models, ~ {
+  predict(.x, test_data) %>%
+    bind_cols(test_data) %>%
+    mutate(model = .y)
+}) %>% bind_rows()
+```
+
+
+```{r}
+ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
+  geom_point(alpha = 0.4, color = "steelblue") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~model, scales = "free") +
+  labs(
+    title = "Predictions vs model values",
+    x = "Real values (spotify_track_popularity)",
+    y = "Predictions"
+  ) +
+  theme_minimal()
+```
+
+
+
+
