@@ -19,8 +19,9 @@ library(tidyr)
 library(stringr)
 library(purrr)
 library(caret)
-library(kknn)
+library(doParallel)
 library(ggcorrplot)
+library(finetune)
 #install.packages("xgboost")
 library(parsnip)
 library(randomForest)
@@ -460,7 +461,7 @@ print(head(regression_data_encoded, 5))
 ```{r}
 
 set.seed(45)
-split <- initial_split(regression_data_encoded, prop = 0.8)
+split <- initial_split(head(regression_data_encoded,100), prop = 0.8)
 train_data <- training(split)
 test_data  <- testing(split)
 
@@ -701,7 +702,7 @@ print(head(regression_data_encoded, 5))
 
 ```{r}
 set.seed(45)
-split <- initial_split(regression_data_encoded, prop = 0.8)
+split <- initial_split(head(regression_data_encoded,100), prop = 0.8)
 train_data <- training(split)
 test_data  <- testing(split)
 
@@ -923,18 +924,18 @@ rf_wf_fit |>
 
 ```{r}
 df_filtered <- full_data_clean |>
-  select(colnames(audio_features),song_id,week_id)
+  select(colnames(full_data_clean),song_id,week_id)
 
 df_filtered$year <- as.numeric(sub(".*/.*/", "", df_filtered$week_id))
 
-df_filtered_2000_15 <- df_filtered[df_filtered$year >= 2000 & df_filtered$year < 2015, ]
+df_filtered_2000_15 <- df_filtered[df_filtered$year >= 2015 & df_filtered$year < 2025, ]
 
 df_filtered_2000_15$week_id <- NULL
 
 df_filtered_2000_15 <- unique(df_filtered_2000_15)
 
 df_filtered_2000_15_genre <- extract_first_genre(df_filtered_2000_15)
-df_filtered_2000_15_genre_encoded <- process_and_encode_genre(df_filtered_2000_15_genre, top_n = 15)
+df_filtered_2000_15_genre_encoded <- process_and_encode_genre(df_filtered_2000_15_genre, top_n = 25)
 
 df_filtered_2000_15_genre_encoded$spotify_track_duration_min <- df_filtered_2000_15_genre_encoded$spotify_track_duration_ms/60000
 
@@ -942,16 +943,26 @@ df_filtered_2000_15_genre_encoded$spotify_track_duration_ms <- NULL
 ```
 
 ```{r}
+df_filtered_2000_15_genre_encoded$week_position <- NULL
+df_filtered_2000_15_genre_encoded$performer <- NULL
+df_filtered_2000_15_genre_encoded$song_id <- NULL
+df_filtered_2000_15_genre_encoded$previous_week_position <- NULL
+df_filtered_2000_15_genre_encoded$peak_position <- NULL
+df_filtered_2000_15_genre_encoded$weeks_on_chart <- NULL
+df_filtered_2000_15_genre_encoded$year <- NULL
+```
+
+```{r}
+df_filtered_2000_15_genre_encoded <- unique(df_filtered_2000_15_genre_encoded)
+df_filtered_2000_15_genre_encoded
+```
+
+
+
+```{r}
 registerDoParallel(cores = parallel::detectCores() - 1)
 
-set.seed(45)
-
-regression_data_encoded_scaled <- robustHD::standardize(df_filtered_2000_15_genre_encoded %>% select(-spotify_track_popularity,-song_id))
-
-#regression_data_encoded_scaled['spotify_track_popularity'] = regression_data$spotify_track_popularity
-
-df_filtered_2000_15_genre_encoded$song_id <- NULL
-
+set.seed(42)
 
 # 1. Split
 split <- initial_split(df_filtered_2000_15_genre_encoded, prop = 0.8)
@@ -968,7 +979,7 @@ cv_folds <- vfold_cv(train_data, v = 5)
 
 # 4. Definisci i modelli con parametri da tunare
 models <- list(
-  rf = rand_forest(mtry = tune(), trees = 500) %>%
+  rf = rand_forest(mtry = tune(), trees = 1000) %>%
     set_engine("randomForest") %>% set_mode("regression"),
 
   xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) %>%
@@ -1015,8 +1026,6 @@ results_df <- bind_rows(results, .id = "model") %>%
   arrange(.estimate)
 
 print(results_df)
-
-
 ```
 
 ```{r}
