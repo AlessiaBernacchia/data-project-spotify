@@ -5,7 +5,15 @@ output: html_notebook
 
 # Spotify Project
 
-Authors: [Bernacchia Alessia](https://github.com/AlessiaBernacchia), [Pioda Tommaso](https://github.com/Thetommigun432), [Villani Giacomo](https://github.com/DownToTheGround)
+In this project we will analyse the evolution of the music, from 1956 until now.
+
+-   First we start to explore whether is possible to predict the popularity of a song from its audio features
+
+-   In second
+
+link to the **dataset**: [jonhthgeek-DataSetSpotify](https://github.com/rfordatascience/tidytuesday/blob/main/data/2021/2021-09-14/readme.md)
+
+**Authors**: [Bernacchia Alessia](https://github.com/AlessiaBernacchia), [Pioda Tommaso](https://github.com/Thetommigun432), [Villani Giacomo](https://github.com/DownToTheGround)
 
 ```{r}
 library(vip)
@@ -375,8 +383,6 @@ regression_data <- full_data_aggregate %>% select(-c(song_id, min_position, max_
 print(head(regression_data,5))
 ```
 
-
-
 select only important genres (\>=200 density)
 
 ```{r}
@@ -577,14 +583,18 @@ if (length(vip_plots) == 2) {
 classification_data <- full_data_aggregate %>% select(-c( song_id, min_position, max_position, avg_position, weeks_in_chart, final_position))
 print(head(classification_data,5))
 ```
+
 Encode popularity
+
 ```{r}
 classification_data <- encode_spotify_popularity(classification_data)
 
 classification_data <- classification_data |>
   filter(!is.na(spotify_track_popularity)) 
 ```
+
 Encode genre
+
 ```{r}
 classification_data <- extract_first_genre(classification_data)
 classification_data <- process_and_encode_genre(classification_data, top_n = 15)
@@ -594,6 +604,7 @@ classification_data <- process_and_encode_genre(classification_data, top_n = 15)
 #print number of NaN for each column
 count_na_per_column_df(classification_data)
 ```
+
 ```{r}
 print(head(classification_data,5))
 ```
@@ -629,8 +640,11 @@ spotify_train_test <- classification_data |> initial_split(prop =  0.7)
 spotify_train <- training(spotify_train_test) 
 spotify_test  <- testing(spotify_train_test)
 ```
+
 #### Classification
+
 Random forest
+
 ```{r}
 rand_forest_spec <- 
   rand_forest(mtry = 5, trees = 200) |>  
@@ -664,7 +678,6 @@ plot_conf_matrix(cm_rF, title = "Confusion Matrix - Classification Random Forest
 
 ```
 
-
 ```{r}
 head(summary(cm_rF),4)
 ```
@@ -676,6 +689,7 @@ rf_wf_fit |>
   extract_fit_engine() |> 
   vip()
 ```
+
 ## Question 2 - As a manager, should I continue to invest in this song given its statistics? Will it remain popular over time?
 
 ### Regression - predict the position on the Billboard
@@ -688,7 +702,9 @@ Remove unrelevant features
 regression_data <- full_data_aggregate %>% select(-c(song_id))
 print(head(regression_data,5))
 ```
+
 one hot encoding of the most 15 important genres
+
 ```{r}
 regression_data <- extract_first_genre(regression_data)
 regression_data_encoded <- process_and_encode_genre(regression_data, top_n = 15)
@@ -815,14 +831,18 @@ if (length(vip_plots) == 2) {
 classification_data <- full_data_aggregate |> select(-c( song_id))
 print(head(classification_data,5))
 ```
+
 Encode popularity
+
 ```{r}
 classification_data <- encode_spotify_popularity(classification_data)
 
 classification_data <- classification_data |>
   filter(!is.na(spotify_track_popularity)) 
 ```
+
 Encode genre
+
 ```{r}
 classification_data <- extract_first_genre(classification_data)
 classification_data <- process_and_encode_genre(classification_data, top_n = 5)
@@ -832,9 +852,6 @@ classification_data <- process_and_encode_genre(classification_data, top_n = 5)
 #print number of NaN for each column
 count_na_per_column_df(classification_data)
 ```
-
-
-
 
 ```{r}
 #create the new variable top30: whether a song is in the top 30
@@ -864,7 +881,9 @@ ggcorrplot(cor_matrix,
 ```{r}
 hist(classification_data$top30)
 ```
+
 #### Classification
+
 ```{r}
 set.seed(42)
 classification_data$top30 <- as.factor(classification_data$top30)
@@ -922,6 +941,7 @@ rf_wf_fit |>
   vip()
 ```
 
+<<<<<<< Updated upstream
 ```{r}
 df_filtered <- full_data_clean |>
   select(colnames(full_data_clean),song_id,week_id)
@@ -1138,3 +1158,6 @@ legend("topright", legend = c("After 2015", "Before 2015"), col = c("blue", "red
 ```
 As we can see from the two distributions, songs released after 2015 are less loud than those released before. Why is that? This could be due to the evolution of music over the years—listeners' tastes have changed, and artists have explored new styles, adapting their sound to the cultural and historical context.
 
+=======
+filtro last week in top 30
+>>>>>>> Stashed changes
