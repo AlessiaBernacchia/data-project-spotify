@@ -953,6 +953,8 @@ df_filtered_before_2015_genre_encoded$spotify_track_duration_ms <- NULL
 ```
 
 ```{r}
+
+# Deleting all the useless features
 df_filtered_2000_15_genre_encoded$week_position <- NULL
 df_filtered_2000_15_genre_encoded$performer <- NULL
 df_filtered_2000_15_genre_encoded$song_id <- NULL
@@ -999,7 +1001,7 @@ recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
 # 3. Resampling
 cv_folds <- vfold_cv(train_data, v = 5)
 
-# 4. Definisci i modelli con parametri da tunare
+# 4. Define the models with the parameters to tune
 models <- list(
   rf = rand_forest(mtry = tune(), trees = 1000) %>%
     set_engine("randomForest") %>% set_mode("regression"),
@@ -1011,14 +1013,14 @@ models <- list(
     set_engine("kknn") %>% set_mode("regression")
 )
 
-# 5. Crea i workflow
+# 5. Create workflows
 workflows_list <- purrr::imap(models, function(model, name) {
   workflow() %>%
     add_model(model) %>%
     add_recipe(recipe_spec)
 })
 
-# 6. Tuning veloce con tune_race_anova
+# 6. Tuning with tune_race_anova
 tuned_models <- purrr::imap(workflows_list, function(wf, name) {
   tune_race_anova(
     wf,
@@ -1029,20 +1031,20 @@ tuned_models <- purrr::imap(workflows_list, function(wf, name) {
   )
 })
 
-# 7. Estrai i migliori iperparametri
+# 7. Exctract the best hiperparameters
 best_models <- purrr::map(tuned_models, ~ select_best(.x))
 
-# 8. Finalizza e fitta
+# 8. Finalize and fit
 final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) %>% fit(data = train_data))
 
-# 9. Valuta su test set
+# 9. Evaluate on test set
 results <- purrr::map(final_models, ~ {
   predict(.x, test_data) %>%
     bind_cols(test_data) %>%
     metrics(truth = spotify_track_popularity, estimate = .pred)
 })
 
-# 10. Riassunto risultati RMSE
+# 10. RMSE results
 results_df <- bind_rows(results, .id = "model") %>%
   filter(.metric == "rmse") %>%
   arrange(.estimate)
@@ -1074,14 +1076,22 @@ ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
 
 
 #Hypothesis test
+
+##Have songs from the last ten years become less loud than before?
+We chose to perform this hypothesis test on the loudness because we noticed it was the most important feature among all the audio features of the songs.
+
 ```{r}
+#selecting only the numeric features
 numeric_data_after_2000 <- df_filtered_2000_15_genre_encoded |>
   select(where(is.numeric))
 
+#selecting all the features that are not related to the genre
 numeric_data_after_2000 <- numeric_data_after_2000 |>
   select(1:(ncol(numeric_data_after_2000) - 27))
 par(mfrow = c(2,2))
 
+
+#plotting the QQ plots to show the distribution of the dataset
 for (colname in names(numeric_data_after_2000)) {
   qqnorm(numeric_data_after_2000[[colname]], main = paste("QQ Plot -", colname))
   qqline(numeric_data_after_2000[[colname]])
@@ -1089,36 +1099,42 @@ for (colname in names(numeric_data_after_2000)) {
 ```
 
 ```{r}
+#selecting only the numeric features
 numeric_data_before_2015 <- df_filtered_before_2015_genre_encoded |>
   select(where(is.numeric))
 
+#selecting all the features that are not related to the genre
 numeric_data_before_2015 <- numeric_data_before_2015 |>
   select(1:(ncol(numeric_data_before_2015) - 27))
 par(mfrow = c(2,2))
 
-
+#plotting the QQ plots to show the distribution of the dataset
 for (colname in names(numeric_data_before_2015)) {
   qqnorm(numeric_data_before_2015[[colname]], main = paste("QQ Plot -", colname))
   qqline(numeric_data_before_2015[[colname]])
 }
 ```
+Based on the QQ plots for the periods before and after 2015, none of the feature distributions appear to be normal. Therefore, to compare the two distributions, we should use the Wilcoxon test.
 
 ```{r}
+
+#Doing a wilcox test based on the loudness of the songs
 wilcox.test(
   df_filtered_2000_15_genre_encoded$loudness,
   df_filtered_before_2015_genre_encoded$loudness,
   alternative = "less"
 )
 
+#filtering the datasets with only the loudness feature
 loudness_after_2000 <- df_filtered_2000_15_genre_encoded$loudness
 loudness_before_2015 <- df_filtered_before_2015_genre_encoded$loudness
+
 
 plot(density(loudness_after_2000), col = "blue", lwd = 2,
      main = "Loudness Density: After 2015 vs Before 2015", xlab = "Loudness")
 lines(density(loudness_before_2015), col = "red", lwd = 2)
 
-legend("topright", legend = c("After 2000", "Before 2000"), col = c("blue", "red"), lwd = 2)
+legend("topright", legend = c("After 2015", "Before 2015"), col = c("blue", "red"), lwd = 2)
 ```
-
-
+As we can see from the two distributions, songs released after 2015 are less loud than those released before. Why is that? This could be due to the evolution of music over the years—listeners' tastes have changed, and artists have explored new styles, adapting their sound to the cultural and historical context.
 
