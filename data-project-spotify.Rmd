@@ -928,28 +928,28 @@ df_filtered <- full_data_clean |>
 
 df_filtered$year <- as.numeric(sub(".*/.*/", "", df_filtered$week_id))
 
-df_filtered_2000_15 <- df_filtered[df_filtered$year >= 2000 & df_filtered$year < 2025, ]
-df_filtered_before_2000 <- df_filtered[df_filtered$year < 2000, ]
+df_filtered_2000_15 <- df_filtered[df_filtered$year >= 2015 & df_filtered$year < 2025, ]
+df_filtered_before_2015 <- df_filtered[df_filtered$year < 2015, ]
 
 df_filtered_2000_15$week_id <- NULL
-df_filtered_before_2000$week_id <- NULL
+df_filtered_before_2015$week_id <- NULL
 
 df_filtered_2000_15 <- unique(df_filtered_2000_15)
-df_filtered_before_2000 <- unique(df_filtered_before_2000)
+df_filtered_before_2015 <- unique(df_filtered_before_2015)
 
 df_filtered_2000_15_genre <- extract_first_genre(df_filtered_2000_15)
-df_filtered_before_2000_genre <- extract_first_genre(df_filtered_before_2000)
+df_filtered_before_2015_genre <- extract_first_genre(df_filtered_before_2015)
 
 df_filtered_2000_15_genre_encoded <- process_and_encode_genre(df_filtered_2000_15_genre, top_n = 25)
-df_filtered_before_2000_genre_encoded <- process_and_encode_genre(df_filtered_before_2000_genre, top_n = 25)
+df_filtered_before_2015_genre_encoded <- process_and_encode_genre(df_filtered_before_2015_genre, top_n = 25)
 
 df_filtered_2000_15_genre_encoded$spotify_track_duration_min <- df_filtered_2000_15_genre_encoded$spotify_track_duration_ms/60000
 
-df_filtered_before_2000_genre_encoded$spotify_track_duration_min <- df_filtered_before_2000_genre_encoded$spotify_track_duration_ms/60000
+df_filtered_before_2015_genre_encoded$spotify_track_duration_min <- df_filtered_before_2015_genre_encoded$spotify_track_duration_ms/60000
 
 df_filtered_2000_15_genre_encoded$spotify_track_duration_ms <- NULL
 
-df_filtered_before_2000_genre_encoded$spotify_track_duration_ms <- NULL
+df_filtered_before_2015_genre_encoded$spotify_track_duration_ms <- NULL
 ```
 
 ```{r}
@@ -961,22 +961,22 @@ df_filtered_2000_15_genre_encoded$peak_position <- NULL
 df_filtered_2000_15_genre_encoded$weeks_on_chart <- NULL
 df_filtered_2000_15_genre_encoded$year <- NULL
 
-df_filtered_before_2000_genre_encoded$week_position <- NULL
-df_filtered_before_2000_genre_encoded$performer <- NULL
-df_filtered_before_2000_genre_encoded$song_id <- NULL
-df_filtered_before_2000_genre_encoded$previous_week_position <- NULL
-df_filtered_before_2000_genre_encoded$peak_position <- NULL
-df_filtered_before_2000_genre_encoded$weeks_on_chart <- NULL
-df_filtered_before_2000_genre_encoded$year <- NULL
+df_filtered_before_2015_genre_encoded$week_position <- NULL
+df_filtered_before_2015_genre_encoded$performer <- NULL
+df_filtered_before_2015_genre_encoded$song_id <- NULL
+df_filtered_before_2015_genre_encoded$previous_week_position <- NULL
+df_filtered_before_2015_genre_encoded$peak_position <- NULL
+df_filtered_before_2015_genre_encoded$weeks_on_chart <- NULL
+df_filtered_before_2015_genre_encoded$year <- NULL
 
 ```
 
 ```{r}
 df_filtered_2000_15_genre_encoded <- unique(df_filtered_2000_15_genre_encoded)
-df_filtered_before_2000_genre_encoded <- unique(df_filtered_before_2000_genre_encoded)
+df_filtered_before_2015_genre_encoded <- unique(df_filtered_before_2015_genre_encoded)
 
 df_filtered_2000_15_genre_encoded
-df_filtered_before_2000_genre_encoded
+df_filtered_before_2015_genre_encoded
 ```
 
 
@@ -1089,33 +1089,33 @@ for (colname in names(numeric_data_after_2000)) {
 ```
 
 ```{r}
-numeric_data_before_2000 <- df_filtered_before_2000_genre_encoded |>
+numeric_data_before_2015 <- df_filtered_before_2015_genre_encoded |>
   select(where(is.numeric))
 
-numeric_data_before_2000 <- numeric_data_before_2000 |>
-  select(1:(ncol(numeric_data_before_2000) - 27))
+numeric_data_before_2015 <- numeric_data_before_2015 |>
+  select(1:(ncol(numeric_data_before_2015) - 27))
 par(mfrow = c(2,2))
 
 
-for (colname in names(numeric_data_before_2000)) {
-  qqnorm(numeric_data_before_2000[[colname]], main = paste("QQ Plot -", colname))
-  qqline(numeric_data_before_2000[[colname]])
+for (colname in names(numeric_data_before_2015)) {
+  qqnorm(numeric_data_before_2015[[colname]], main = paste("QQ Plot -", colname))
+  qqline(numeric_data_before_2015[[colname]])
 }
 ```
 
 ```{r}
 wilcox.test(
   df_filtered_2000_15_genre_encoded$loudness,
-  df_filtered_before_2000_genre_encoded$loudness,
+  df_filtered_before_2015_genre_encoded$loudness,
   alternative = "less"
 )
 
 loudness_after_2000 <- df_filtered_2000_15_genre_encoded$loudness
-loudness_before_2000 <- df_filtered_before_2000_genre_encoded$loudness
+loudness_before_2015 <- df_filtered_before_2015_genre_encoded$loudness
 
 plot(density(loudness_after_2000), col = "blue", lwd = 2,
-     main = "Loudness Density: After 2000 vs Before 2000", xlab = "Loudness")
-lines(density(loudness_before_2000), col = "red", lwd = 2)
+     main = "Loudness Density: After 2015 vs Before 2015", xlab = "Loudness")
+lines(density(loudness_before_2015), col = "red", lwd = 2)
 
 legend("topright", legend = c("After 2000", "Before 2000"), col = c("blue", "red"), lwd = 2)
 ```
