@@ -948,8 +948,8 @@ df_filtered <- full_data_clean |>
 
 df_filtered$year <- as.numeric(sub(".*/.*/", "", df_filtered$week_id))
 
-df_filtered_2000_15 <- df_filtered[df_filtered$year >= 2015 & df_filtered$year < 2025, ]
-df_filtered_before_2015 <- df_filtered[df_filtered$year < 2015, ]
+df_filtered_2000_15 <- df_filtered[df_filtered$year >= 2000 & df_filtered$year < 2025, ]
+df_filtered_before_2015 <- df_filtered[df_filtered$year < 2000, ]
 
 df_filtered_2000_15$week_id <- NULL
 df_filtered_before_2015$week_id <- NULL
@@ -1097,7 +1097,7 @@ ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
 
 #Hypothesis test
 
-##Have songs from the last ten years become less loud than before?
+##Have songs from the last ten years become louder than before?
 We chose to perform this hypothesis test on the loudness because we noticed it was the most important feature among all the audio features of the songs.
 
 ```{r}
@@ -1142,7 +1142,7 @@ Based on the QQ plots for the periods before and after 2015, none of the feature
 wilcox.test(
   df_filtered_2000_15_genre_encoded$loudness,
   df_filtered_before_2015_genre_encoded$loudness,
-  alternative = "less"
+  alternative = "greater"
 )
 
 #filtering the datasets with only the loudness feature
@@ -1151,12 +1151,12 @@ loudness_before_2015 <- df_filtered_before_2015_genre_encoded$loudness
 
 
 plot(density(loudness_after_2000), col = "blue", lwd = 2,
-     main = "Loudness Density: After 2015 vs Before 2015", xlab = "Loudness")
+     main = "Loudness Density: After 2000 vs Before 2000", xlab = "Loudness")
 lines(density(loudness_before_2015), col = "red", lwd = 2)
 
-legend("topright", legend = c("After 2015", "Before 2015"), col = c("blue", "red"), lwd = 2)
+legend("topright", legend = c("After 2000", "Before 2000"), col = c("blue", "red"), lwd = 2)
 ```
-As we can see from the two distributions, songs released after 2015 are less loud than those released before. Why is that? This could be due to the evolution of music over the years—listeners' tastes have changed, and artists have explored new styles, adapting their sound to the cultural and historical context.
+As we can see from the two distributions, songs released after 2015 are louder than those released before. Why is that? This could be due to the evolution of music over the years—listeners' tastes have changed, and artists have explored new styles, adapting their sound to the cultural and historical context.
 
 =======
 filtro last week in top 30
