@@ -536,10 +536,10 @@ test_data  <- testing(split)
 recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
   step_dummy(all_nominal_predictors(), one_hot = TRUE)
 
-# 3. Resampling (non usato direttamente, ma mantenuto)
+# 3. Resampling
 cv_folds <- vfold_cv(train_data, v = 5)
 
-# 4. Modelli con parametri fissi
+# 4. Models with tuned parameters
 models <- list(
   rf = rand_forest(mtry = 5, trees = 500) %>%
     set_engine("randomForest") %>% set_mode("regression"),
@@ -551,34 +551,34 @@ models <- list(
     set_engine("kknn") %>% set_mode("regression")
 )
 
-# 5. Workflow per ciascun modello
+# 5. Workflow for each model
 workflows_list <- purrr::imap(models, function(model, name) {
   workflow() %>%
     add_model(model) %>%
     add_recipe(recipe_spec)
 })
 
-# 6. Fit parallelo
+# 6. Parallel fitting
 final_models <- furrr::future_map(workflows_list, function(wf) {
-  library(tidymodels)  # necessario dentro il worker
+  library(tidymodels)
   fit(wf, data = train_data)
 })
 
-# 7. Predizione + metriche parallele
+# 7. Parallel predictions on test set
 results <- furrr::future_map(final_models, ~ {
   predict(.x, test_data) %>%
     bind_cols(test_data) %>%
     metrics(truth = spotify_track_popularity, estimate = .pred)
 })
 
-# 8. Riassunto risultati
+# 8. Results
 results_df <- bind_rows(results, .id = "model") %>%
   filter(.metric == "rmse") %>%
   arrange(.estimate)
 
 print(results_df)
 
-# Torna a sequenziale
+# Let's continue the program sequentially
 plan(sequential)
 ```
 
@@ -774,9 +774,9 @@ data_filtered$spotify_track_duration_min <- data_filtered$spotify_track_duration
 data_filtered <- data_filtered |> select(-c(spotify_track_duration_ms))
 ```
 
-Filter the song after 2000
+Filter the song after 2010
 ```{r}
-bound_year = 2000
+bound_year = 2010
 
 data_filtered_after <- data_filtered[data_filtered$year >= bound_year & data_filtered$year < 2025, ]
 data_filtered_before <- data_filtered[data_filtered$year < bound_year, ]
@@ -809,7 +809,6 @@ regression_data_after <- data_filtered_after_encoded |> select(-c(performer, son
 ```
 
 Scale the features
-<<<<<<<<<<<<<<<<<TODO: vedere se mettere uno unique per ogni anno --> problema riassegnare target>>>>>>>>>>>>>>>>>>>>
 ```{r}
 regression_data_after <- robustHD::standardize(regression_data_after |> select(-c( year, spotify_track_popularity)))
 regression_data_after$spotify_track_popularity <- data_filtered_after_encoded$spotify_track_popularity
@@ -909,10 +908,10 @@ test_data  <- testing(split)
 recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
   step_dummy(all_nominal_predictors(), one_hot = TRUE)
 
-# 3. Resampling (non usato qui)
+# 3. Resampling
 cv_folds <- vfold_cv(train_data, v = 5)
 
-# 4. Modelli con parametri fissi
+# 4. Models with tuned parameters
 models <- list(
   rf = rand_forest(mtry = 5, trees = 500) %>%
     set_engine("randomForest") %>% set_mode("regression"),
@@ -924,34 +923,34 @@ models <- list(
     set_engine("kknn") %>% set_mode("regression")
 )
 
-# 5. Workflows
+# 5. Workflow for each model
 workflows_list <- purrr::imap(models, function(model, name) {
   workflow() %>%
     add_model(model) %>%
     add_recipe(recipe_spec)
 })
 
-# 6. Fit parallelo
+# 6. Parallel fitting
 final_models <- furrr::future_map(workflows_list, function(wf) {
-  library(tidymodels)  # necessario dentro il worker
+  library(tidymodels)
   fit(wf, data = train_data)
 })
 
-# 7. Valuta su test set in parallelo
+# 7. Parallel predictions on test set
 results <- furrr::future_map(final_models, ~ {
   predict(.x, test_data) %>%
     bind_cols(test_data) %>%
     metrics(truth = spotify_track_popularity, estimate = .pred)
 })
 
-# 8. Riassunto RMSE
+# 8. Results
 results_df <- bind_rows(results, .id = "model") %>%
   filter(.metric == "rmse") %>%
   arrange(.estimate)
 
 print(results_df)
 
-# (opzionale) chiudi il cluster
+# Let's continue the program sequentially
 plan(sequential)
 ```
 
