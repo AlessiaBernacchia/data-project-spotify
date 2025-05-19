@@ -16,25 +16,38 @@ link to the **dataset**: [jonhthgeek-DataSetSpotify](https://github.com/rfordata
 **Authors**: [Bernacchia Alessia](https://github.com/AlessiaBernacchia), [Pioda Tommaso](https://github.com/Thetommigun432), [Villani Giacomo](https://github.com/DownToTheGround)
 
 ```{r}
+# samples for regression
+n_samples_to_consider = 100
+```
+
+
+```{r}
 library(vip)
 library(readr)
 library(dplyr)
 library(tidymodels)
 library(ggplot2)
-library(tidymodels)
 library(rsample)
 library(tidyr)
+library(themis)
 library(stringr)
 library(purrr)
 library(caret)
-library(doParallel)
-library(ggcorrplot)
-library(finetune)
+library(kknn)
+
 #install.packages("xgboost")
 library(parsnip)
 library(randomForest)
 library(kknn)
 library(xgboost)
+library(finetune)
+library(doParallel)
+library(robustHD)
+library(parsnip)
+
+# for exploration
+library(corrplot)
+library(ggcorrplot)
 
 # for classification
 library(pROC)
@@ -193,28 +206,28 @@ plot_conf_matrix <- function(conf_matrix_object, title = "Confusion Matrix") {
 }
 ```
 
-## Import the data
+## 1.Import the data
 
 ```{r}
 billboard <- read_csv("billboard.csv", 
-                           col_types = cols(
-                            url = col_skip(), 
-                            song = col_skip(),
-                            instance = col_skip()
-                            ))
+                      col_types = cols(
+                        url = col_skip(), 
+                        song = col_skip(),
+                        instance = col_skip()
+                      ))
 print(head(billboard,5))
 ```
 
 ```{r}
 audio_features <- read_csv("audio_features.csv", 
-                          col_types = cols( 
-                            performer = col_skip(), 
-                            song = col_skip(), 
-                            spotify_track_preview_url = col_skip(),
-                            spotify_track_explicit = col_skip(),
-                            spotify_track_album = col_skip(),
-                            spotify_track_id = col_skip()
-                            ))
+                           col_types = cols( 
+                             performer = col_skip(), 
+                             song = col_skip(), 
+                             spotify_track_preview_url = col_skip(),
+                             spotify_track_explicit = col_skip(),
+                             spotify_track_album = col_skip(),
+                             spotify_track_id = col_skip()
+                           ))
 print(head(audio_features,5))
 ```
 
@@ -229,13 +242,17 @@ audio_features <- na.omit(audio_features) # remove all NaN
 full_data <- left_join(billboard, audio_features, by = "song_id") # merge datasets
 ```
 
-## Data exploration and cleaning
+## 2.Data exploration and cleaning
 
 ```{r}
 glimpse(full_data)
 ```
 
-### Missing Values
+```{r}
+summary(full_data)
+```
+
+### 2.1 Missing Values
 
 ```{r}
 na_counts <- count_na_per_column_df(full_data)
@@ -252,7 +269,7 @@ ncol(full_data_clean)
 
 ```
 
-### Distributions
+### 2.2 Distributions
 
 Distribution of numeric data
 
@@ -267,6 +284,17 @@ ggplot(numeric_data_long, aes(x = value)) +
   facet_wrap(~ variable, scales = "free", ncol = 3) +  # 3 columns
   theme_minimal()
 #ggsave("0_numeric_histogram_distribution.png", width = 12, height = 16)
+```
+
+QQ plot
+
+```{r}
+par(mfrow = c(5, 5))  # cambia a seconda del numero di variabili
+
+for (colname in names(numeric_data)) {
+  qqnorm(numeric_data[[colname]], main = paste("QQ Plot -", colname))
+  qqline(numeric_data[[colname]])
+}
 ```
 
 Distribution of categorical data (due the fact there are too many unique values, we choose to filter and observe only the first 50 most frequent variables)
@@ -293,7 +321,7 @@ ggplot(categorical_data_top50, aes(x = value, y = count)) +
 #ggsave("0_categorical_histogram_distribution.png", width = 12, height = 16)
 ```
 
-### Cleaning
+### 2.3 Cleaning
 
 ```{r}
 hist(full_data_clean$instrumentalness)
@@ -317,7 +345,7 @@ From the distribution of `instrumentalness` and `time signature` they seem to be
 full_data_clean <- full_data_clean %>% select(-c(instrumentalness, time_signature))
 ```
 
-### Outliers
+### 2.4 Outliers
 
 ```{r}
 # histograms distribution facet
@@ -328,18 +356,23 @@ ggplot(numeric_data_long, aes(x = value, y = "")) +
 #ggsave("0_numeric_boxplot_distribution.png", width = 12, height = 16)
 ```
 
+### 2.5 Correlations
+
 ```{r}
-# correlation matrix
+# compute correlation matrix
 cor_matrix <- cor(numeric_data, use = "complete.obs")
 
-ggcorrplot(cor_matrix, 
-           method = "square",      # o "circle"
-           type = "lower",         # lower triangle        
-           colors = c("red", "white", "blue"),
-           title = "Correlation Matrix",
-           ggtheme = ggplot2::theme_minimal())
+# correlation heatmap
+corrplot(cor_matrix, method = "color", 
+         type = "upper", tl.col = "black", 
+         #number.cex = 0.7, addCoef.col = "black",
+         tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
 #ggsave("0_numeric_heatmap.png", width = 12, height = 16)
 ```
+
+## 3. Global Preprocessing
+
+### 3.1 Aggregations
 
 ```{r}
 # new features creation
@@ -356,10 +389,8 @@ billboard_summary <- billboard %>%
 full_data_aggregate <- merge(billboard_summary, audio_features, by = "song_id", all = FALSE)
 full_data_aggregate <- full_data_aggregate %>% select(-c(instrumentalness, time_signature))
 
-```
-
-```{r}
 print(head(full_data_aggregate, 5))
+
 ```
 
 ```{r}
@@ -370,9 +401,20 @@ nrow(full_data)
 nrow(full_data_aggregate)
 ```
 
-## Question 1 - Given the audio features of a new song, in which position it will chart on Billboard?
+### 3.2 Add time columns
 
-### Regression - predict the position on the Billboard
+```{r}
+full_data_clean <- full_data_clean |>
+  select(colnames(full_data_clean),song_id,week_id)
+
+full_data_clean$year <- as.numeric(sub(".*/.*/", "", full_data_clean$week_id))
+
+head(full_data_clean, 5)
+```
+
+## 4 Main Question - Given the audio features of a new song, will it become popular?
+
+### 4.1 Regression - predict the position on the billboard
 
 #### Preprocessing
 
@@ -383,181 +425,138 @@ regression_data <- full_data_aggregate %>% select(-c(song_id, min_position, max_
 print(head(regression_data,5))
 ```
 
-select only important genres (\>=200 density)
-
-```{r}
-# # count frequency of each sample in first_genre column
-# genre_counts <- table(regression_data$first_genre)
-# 
-# # identify genres with less than 200 samples
-# low_count_genres <- names(genre_counts[genre_counts < 300])
-# 
-# # substitute those genres with "others"
-# regression_data$first_genre <- ifelse(regression_data$first_genre %in% low_count_genres, "others", regression_data$first_genre)
-# 
-# # verify the counts after grouping
-# genre_counts_after_grouping <- table(regression_data$first_genre)
-# 
-# # drop original spotify_genre column
-# regression_data <- subset(regression_data, select = -c(spotify_genre))
-# 
-# # ensure the column is upgraded for dummyVars
-# df <- data.frame(first_genre = regression_data$first_genre)
-# 
-# # create dummy variables (one-hot encoding)
-# dummy <- dummyVars(~ first_genre, data = df)
-# final_df <- data.frame(predict(dummy, newdata = df))
-# 
-# # bind dummy variables to the rest of regression_data
-# regression_data_encoded_1 <- bind_cols(
-#   regression_data %>% select(-first_genre),
-#   final_df
-# )
-```
-
 One hot encoding of the 15 most frequent genre
 
 ```{r}
 regression_data <- extract_first_genre(regression_data)
 regression_data_encoded <- process_and_encode_genre(regression_data, top_n = 15)
-```
-
-```{r}
-# # frequency counter
-# genre_counts <- table(regression_data$first_genre)
-# 
-# # order based in decrescent order the frequency
-# genre_counts_sorted <- sort(genre_counts, decreasing = TRUE)
-# 
-# # take only first 15 genres
-# top_15_genres <- names(genre_counts_sorted)[1:15]
-# 
-# # named others as "others"
-# regression_data$first_genre <- ifelse(
-#   regression_data$first_genre %in% top_15_genres,
-#   regression_data$first_genre,
-#   "others"
-# )
-# 
-# # verify
-# genre_counts_after_grouping <- table(regression_data$first_genre)
-# 
-# # drop original spotify_genre column
-# regression_data <- subset(regression_data, select = -c(spotify_genre))
-# 
-# # ensure the column is upgraded for dummyVars
-# df <- data.frame(first_genre = regression_data$first_genre)
-# 
-# # create dummy variables (one-hot encoding)
-# dummy <- dummyVars(~ first_genre, data = df)
-# final_df <- data.frame(predict(dummy, newdata = df))
-# 
-# # bind dummy variables to the rest of regression_data (without first_genre)
-# regression_data_encoded <- bind_cols(
-#   regression_data %>% select(-first_genre),
-#   final_df
-# )
-
-
-print(head(regression_data_encoded, 5))
-```
-
-#### Regression
-
-```{r}
-
 set.seed(45)
-split <- initial_split(head(regression_data_encoded,100), prop = 0.8)
+```
+
+Scaling
+
+```{r}
+regression_data_encoded_scaled <- robustHD::standardize(regression_data_encoded |> select(-spotify_track_popularity))
+
+regression_data_encoded_scaled['spotify_track_popularity'] = regression_data$spotify_track_popularity
+
+print(head(regression_data_encoded_scaled, 5))
+```
+
+#### Regressions
+
+1.  split the dataset
+
+```{r}
+set.seed(45)
+split <- initial_split(head(regression_data_encoded,n_samples_to_consider), prop = 0.8)
 train_data <- training(split)
 test_data  <- testing(split)
 
+# resampling for cross validation
+cv_folds <- vfold_cv(train_data, v = 5)
+```
+
+2.  define recipe, models and workflows
+
+```{r}
 # recipe
-#recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data)
-recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
+recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) |>
   step_dummy(all_nominal_predictors(), one_hot = TRUE)
 
-# define models
+# models with tuning parameters
 task = 'regression'
-
 models <- list(
-  rf = rand_forest(mtry = 5) %>% set_engine("randomForest") %>% set_mode(task),
-  #lm = linear_reg() %>% set_engine("lm") %>% set_mode(task),
-  xgb = boost_tree(trees = 1000, tree_depth = 10) %>% set_engine("xgboost") %>% set_mode(task),
-  knn = nearest_neighbor(neighbors = 5) %>% set_engine("kknn") %>% set_mode(task)
+  rf = rand_forest(mtry = tune(), trees = 500) |>
+    set_engine("randomForest") |> set_mode(task),
+  
+  xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) |>
+    set_engine("xgboost") |> set_mode(task),
+  
+  knn = nearest_neighbor(neighbors = tune()) |>
+    set_engine("kknn") |> set_mode(task)
 )
 
-# workflow list
-workflows_list <- purrr::map(models, ~ workflow() %>% add_model(.x) %>% add_recipe(recipe_spec))
-
-# train the models
-fitted_models <- purrr::map(workflows_list, ~ fit(.x, data = train_data))
-
-# evaluation
-results <- purrr::map(fitted_models, ~ {
-  predict(.x, test_data) %>%
-    bind_cols(test_data) %>%
-    metrics(truth = spotify_track_popularity, estimate = .pred)
+# workflows
+workflows_list <- purrr::imap(models, function(model, name) {
+  workflow() |> add_model(model) |> add_recipe(recipe_spec)
 })
+```
 
-# results
-results_df <- bind_rows(results, .id = "model")
+3.  tuning
 
-results_df %>%
-  filter(.metric == "rmse") %>%
-  arrange(.estimate)
+```{r}
+# tune_race_anova
+tuned_models <- purrr::imap(workflows_list, function(wf, name) {
+  tune_race_anova(
+    wf,
+    resamples = cv_folds,
+    grid = 5,
+    metrics = metric_set(rmse),
+    control = control_race(verbose_elim = TRUE)
+  )})
+
+# extract best values
+best_models <- purrr::map(tuned_models, ~ select_best(.x))
+```
+
+4.  finalize and fits the models to the training set
+
+```{r}
+final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) |> fit(data = train_data))
+```
+
+5.  evaluation on the test set
+
+```{r}
+results <- purrr::map(final_models, ~ {
+  predict(.x, test_data) |>
+    bind_cols(test_data) |>
+    metrics(truth = spotify_track_popularity, estimate = .pred)})
+
+# summary RMSE
+results_df <- bind_rows(results, .id = "model") |>
+  filter(.metric == "rmse") |> arrange(.estimate)
 
 print(results_df)
 ```
 
 ```{r}
-results <- list()
-
-for (model_name in names(fitted_models)) {
-  model <- models[[model_name]]
-  
-  wf <- workflow() %>%
-    add_model(model) %>%
-    add_recipe(recipe_spec)
-  
-  fit_model <- fit(wf, data = train_data)
-  
-  preds <- predict(fit_model, test_data) %>%
-    bind_cols(test_data) %>%
-    mutate(model = model_name)
-  
-  results[[model_name]] <- preds
-}
-
-all_predictions <- bind_rows(results)
+all_predictions <- purrr::imap(final_models, ~ {
+  predict(.x, test_data) |>
+    bind_cols(test_data) |>
+    mutate(model = .y)
+}) |> bind_rows()
 
 ```
 
 ```{r}
-
 ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
   geom_point(alpha = 0.4, color = "steelblue") +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
   facet_wrap(~model, scales = "free") +
   labs(
-    title = "Predictions vs Real Values",
+    title = "Predictions vs Real Values for Models",
     x = "Real Values (spotify_track_popularity)",
     y = "Predictions"
   ) +
   theme_minimal()
 ```
 
+features importance
+
 ```{r}
 # VIP plot list
 vip_plots <- list()
 
 # Random Forest
-rf_fit <- extract_fit_parsnip(fitted_models$rf)
+rf_fit <- extract_fit_parsnip(final_models$rf)
 if (inherits(rf_fit$fit, "randomForest")) {
   vip_plots$rf <- vip(rf_fit$fit, num_features = 15) + ggtitle("Random Forest - Variable Importance")
 }
 
 # XGBoost
-xgb_fit <- extract_fit_parsnip(fitted_models$xgb)
+xgb_fit <- extract_fit_parsnip(final_models$xgb)
 if (inherits(xgb_fit$fit, "xgb.Booster")) {
   vip_plots$xgb <- vip(xgb_fit$fit, num_features = 15) + ggtitle("XGBoost - Variable Importance")
 }
@@ -572,12 +571,13 @@ if (length(vip_plots) == 2) {
   # if only one is possible
   vip_plots[[1]]
 }
-
 ```
 
-### Classification- predict which level of popularity
+### 4.2 Classification- predict which level of popularity
 
 #### Preprocessing
+
+Remove unrelevant features
 
 ```{r}
 classification_data <- full_data_aggregate %>% select(-c( song_id, min_position, max_position, avg_position, weeks_in_chart, final_position))
@@ -602,28 +602,33 @@ classification_data <- process_and_encode_genre(classification_data, top_n = 15)
 
 ```{r}
 #print number of NaN for each column
-count_na_per_column_df(classification_data)
+#count_na_per_column_df(classification_data)
 ```
 
 ```{r}
 print(head(classification_data,5))
 ```
 
+Analyse the correlations
+
 ```{r}
 # select only numerical data
-numeric_data_clss <- classification_data %>%
+numeric_data_clss <- classification_data |>
   select(where(is.numeric))
 
-# correlation matrix
-cor_matrix <- cor(numeric_data_clss, use = "complete.obs")
+# compute correlation matrix
+cor_matrix <- cor(numeric_data, use = "complete.obs")
 
-ggcorrplot(cor_matrix, 
-           method = "square",     # or "circle"
-           type = "lower",        # only lower triangle        
-           colors = c("red", "white", "blue"),  # come in seaborn
-           title = "Correlation Matrix",
-           ggtheme = ggplot2::theme_minimal())
+# correlation heatmap
+corrplot(cor_matrix, method = "color", 
+         type = "upper", tl.col = "black", 
+         #number.cex = 0.7, addCoef.col = "black",
+         tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
+
+#ggsave("4_regression_heatmap.png", width = 12, height = 16)
 ```
+
+Target Distribution
 
 ```{r}
 ggplot(classification_data, aes(x = spotify_track_popularity)) +
@@ -633,6 +638,8 @@ ggplot(classification_data, aes(x = spotify_track_popularity)) +
        y = "Counter") +
   theme_minimal()
 ```
+
+split
 
 ```{r}
 set.seed(42)
@@ -689,6 +696,292 @@ rf_wf_fit |>
   extract_fit_engine() |> 
   vip()
 ```
+
+<<<<<<<<<<<TODO>>>>>>>>>>>>>
+> Is the music changed over time?
+  
+## 5. Taking only the last 25 years of data, <<<<<<<<the model will improve / possibile stimare meglio>>>>>>>>>>>>>?
+### 5.1 Preprocessing
+  Remove unrelevant features
+```{r}
+data_filtered <- full_data_clean |> select(-c(week_id, week_position, previous_week_position, peak_position, weeks_on_chart))
+```
+
+convert milliseconds in minutes
+```{r}
+data_filtered$spotify_track_duration_min <- data_filtered$spotify_track_duration_ms/60000
+data_filtered <- data_filtered |> select(-c(spotify_track_duration_ms))
+```
+
+Filter the song after 2000
+```{r}
+bound_year = 2000
+
+data_filtered_after <- data_filtered[data_filtered$year >= bound_year & data_filtered$year < 2025, ]
+data_filtered_before <- data_filtered[data_filtered$year < bound_year, ]
+```
+
+encode the most frequent 15 genres for each period
+```{r}
+data_filtered_after_encoded <- extract_first_genre(data_filtered_after) 
+data_filtered_after_encoded <- process_and_encode_genre(data_filtered_after_encoded, top_n = 10)
+
+data_filtered_before_encoded <- extract_first_genre(data_filtered_before) 
+data_filtered_before_encoded <- process_and_encode_genre(data_filtered_before_encoded, top_n = 10)
+```
+
+remove duplicates
+```{r}
+data_filtered_after_encoded <- unique(data_filtered_after_encoded)
+data_filtered_before_encoded <- unique(data_filtered_before_encoded)
+```
+
+```{r}
+print(head(data_filtered_after_encoded, 5))
+print(head(data_filtered_before_encoded, 5))
+```
+
+### 5.2 Regression after 2000
+#### Preprocessing
+```{r}
+regression_data_after <- data_filtered_after_encoded |> select(-c(performer, song_id))
+```
+
+Scale the features
+<<<<<<<<<<<<<<<<<TODO: vedere se mettere uno unique per ogni anno --> problema riassegnare target>>>>>>>>>>>>>>>>>>>>
+```{r}
+regression_data_after <- robustHD::standardize(regression_data_after |> select(-c( year, spotify_track_popularity)))
+regression_data_after$spotify_track_popularity <- data_filtered_after_encoded$spotify_track_popularity
+regression_data_after <- unique(regression_data_after)
+
+#regression_data_after$year <- data_filtered_after_encoded$year
+print(head(regression_data_after, 5))
+```
+
+#### Regressions
+1. split the dataset
+```{r}
+registerDoParallel(cores = parallel::detectCores() - 1)
+
+set.seed(45)
+split <- initial_split(head(regression_data_after, n_samples_to_consider), prop = 0.8)
+train_data <- training(split)
+test_data  <- testing(split)
+
+# resampling for cross validation
+cv_folds <- vfold_cv(train_data, v = 5)
+```
+
+2. define recipe, models and workflows
+```{r}
+# recipe
+recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) |>
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
+# models with tuning parameters
+task = 'regression'
+models <- list(
+  rf = rand_forest(mtry = tune(), trees = 500) |>
+    set_engine("randomForest") |> set_mode(task),
+  
+  xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) |>
+    set_engine("xgboost") |> set_mode(task),
+  
+  knn = nearest_neighbor(neighbors = tune()) |>
+    set_engine("kknn") |> set_mode(task)
+)
+
+# workflows
+workflows_list <- purrr::imap(models, function(model, name) {
+  workflow() |> add_model(model) |> add_recipe(recipe_spec)
+})
+```
+
+3. tuning
+```{r}
+# tune_race_anova
+tuned_models <- purrr::imap(workflows_list, function(wf, name) {
+  tune_race_anova(
+    wf,
+    resamples = cv_folds,
+    grid = 5,
+    metrics = metric_set(rmse),
+    control = control_race(verbose_elim = TRUE)
+  )})
+
+# extract best values
+best_models <- purrr::map(tuned_models, ~ select_best(.x))
+```
+
+4. finalize and fits the models to the training set
+```{r}
+final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) |> fit(data = train_data))
+```
+
+5. evaluation on the test set
+```{r}
+results <- purrr::map(final_models, ~ {
+  predict(.x, test_data) |>
+    bind_cols(test_data) |>
+    metrics(truth = spotify_track_popularity, estimate = .pred)})
+
+# summary RMSE
+results_df <- bind_rows(results, .id = "model") |>
+  filter(.metric == "rmse") |> arrange(.estimate)
+
+print(results_df)
+```
+
+```{r}
+all_predictions <- purrr::imap(final_models, ~ {
+  predict(.x, test_data) |>
+    bind_cols(test_data) |>
+    mutate(model = .y)
+}) |> bind_rows()
+
+```
+
+```{r}
+ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
+  geom_point(alpha = 0.4, color = "steelblue") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~model, scales = "free") +
+  labs(
+    title = "Predictions vs Real Values for Models",
+    x = "Real Values (spotify_track_popularity)",
+    y = "Predictions"
+  ) +
+  theme_minimal()
+```
+
+features importance
+```{r}
+# VIP plot list
+vip_plots <- list()
+
+# Random Forest
+rf_fit <- extract_fit_parsnip(final_models$rf)
+if (inherits(rf_fit$fit, "randomForest")) {
+  vip_plots$rf <- vip(rf_fit$fit, num_features = 15) + ggtitle("Random Forest - Variable Importance")
+}
+
+# XGBoost
+xgb_fit <- extract_fit_parsnip(final_models$xgb)
+if (inherits(xgb_fit$fit, "xgb.Booster")) {
+  vip_plots$xgb <- vip(xgb_fit$fit, num_features = 15) + ggtitle("XGBoost - Variable Importance")
+}
+
+# visualize plots
+library(patchwork)
+
+# show them
+if (length(vip_plots) == 2) {
+  vip_plots$rf + vip_plots$xgb
+} else {
+  # if only one is possible
+  vip_plots[[1]]
+}
+```
+
+QQ plot
+```{r}
+numeric_data <- regression_data |> select(where(is.numeric))
+par(mfrow = c(2,2))  # cambia a seconda del numero di variabili
+
+for (colname in names(numeric_data)) {
+  qqnorm(numeric_data[[colname]], main = paste("QQ Plot -", colname))
+  qqline(numeric_data[[colname]])
+}
+```
+
+> Sono questi due periodi diversi?? Guardiamo i primi due elementi
+
+```{r}
+loudness_summary <- full_data_clean %>%
+  group_by(year) %>%
+  summarise(
+    mean_loudness = mean(loudness, na.rm = TRUE),
+    sd_loudness = sd(loudness, na.rm = TRUE),
+    n = n(),
+    se = sd_loudness / sqrt(n)  # standard error
+  )
+
+ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_ribbon(aes(ymin = mean_loudness - se, ymax = mean_loudness + se), 
+              fill = "lightblue", alpha = 0.4) +
+  labs(title = "Loudness Through the Years",
+       x = "Year", y = "Average Loudness (dB)") +
+  theme_minimal()
+```
+
+## 6. Have songs from the last ten years become louder than before? We chose to perform this hypothesis test on the loudness because we noticed it was the most important feature among all the audio features of the songs.
+
+### 6.1 Hypothesis test
+#### Preprocessing
+
+Remove unrelevant features
+```{r}
+# selecting only the numeric features
+hypothesis_data_after <- data_filtered_after_encoded |> select(where(is.numeric))
+hypothesis_data_before <- data_filtered_before_encoded |> select(where(is.numeric))
+```
+
+Analyse distribution
+```{r}
+#selecting all the features that are not related to the genre
+numeric_data_after_no_genre <- hypothesis_data_after |>
+  select(1:(ncol(hypothesis_data_after) - 11))
+par(mfrow = c(2,2))
+
+numeric_data_before_no_genre <- hypothesis_data_before |>
+  select(1:(ncol(hypothesis_data_before) - 11))
+```
+
+*After 2000*
+```{r}
+#plotting the QQ plots to show the distribution of the dataset
+par(mfrow = c(2,2))
+for (colname in names(numeric_data_after_no_genre)) {
+  qqnorm(numeric_data_after_no_genre[[colname]], main = paste("QQ Plot -", colname))
+  qqline(numeric_data_after_no_genre[[colname]])
+}
+```
+*Before 2000*
+```{r}
+#plotting the QQ plots to show the distribution of the dataset
+par(mfrow = c(2,2))
+for (colname in names(numeric_data_before_no_genre)) {
+  qqnorm(numeric_data_before_no_genre[[colname]], main = paste("QQ Plot -", colname))
+  qqline(numeric_data_before_no_genre[[colname]])
+}
+```
+
+Based on the QQ plots for the periods before and after 2015, none of the feature distributions appear to be normal. Therefore, to compare the two distributions, we should use the Wilcoxon test.
+
+#### Hypothesis Test
+```{r}
+#Doing a wilcox test based on the loudness of the songs
+wilcox.test(
+  hypothesis_data_after$loudness,
+  hypothesis_data_before$loudness,
+  alternative = "greater"
+)
+
+#filtering the datasets with only the loudness feature
+loudness_after <- hypothesis_data_after$loudness
+loudness_before <- hypothesis_data_before$loudness
+
+
+plot(density(loudness_after), col = "blue", lwd = 2,
+     main = "Loudness Density: After 2000 vs Before 2000", xlab = "Loudness")
+lines(density(loudness_before), col = "red", lwd = 2)
+
+legend("topright", legend = c("After 2000", "Before 2000"), col = c("blue", "red"), lwd = 2)
+```
+
+As we can see from the two distributions, songs released after 2015 are louder than those released before. Why is that? This could be due to the evolution of music over the years—listeners' tastes have changed, and artists have explored new styles, adapting their sound to the cultural and historical context.
+
 
 ## Question 2 - As a manager, should I continue to invest in this song given its statistics? Will it remain popular over time?
 
@@ -941,223 +1234,4 @@ rf_wf_fit |>
   vip()
 ```
 
-<<<<<<< Updated upstream
-```{r}
-df_filtered <- full_data_clean |>
-  select(colnames(full_data_clean),song_id,week_id)
 
-df_filtered$year <- as.numeric(sub(".*/.*/", "", df_filtered$week_id))
-
-df_filtered_2000_15 <- df_filtered[df_filtered$year >= 2000 & df_filtered$year < 2025, ]
-df_filtered_before_2015 <- df_filtered[df_filtered$year < 2000, ]
-
-df_filtered_2000_15$week_id <- NULL
-df_filtered_before_2015$week_id <- NULL
-
-df_filtered_2000_15 <- unique(df_filtered_2000_15)
-df_filtered_before_2015 <- unique(df_filtered_before_2015)
-
-df_filtered_2000_15_genre <- extract_first_genre(df_filtered_2000_15)
-df_filtered_before_2015_genre <- extract_first_genre(df_filtered_before_2015)
-
-df_filtered_2000_15_genre_encoded <- process_and_encode_genre(df_filtered_2000_15_genre, top_n = 25)
-df_filtered_before_2015_genre_encoded <- process_and_encode_genre(df_filtered_before_2015_genre, top_n = 25)
-
-df_filtered_2000_15_genre_encoded$spotify_track_duration_min <- df_filtered_2000_15_genre_encoded$spotify_track_duration_ms/60000
-
-df_filtered_before_2015_genre_encoded$spotify_track_duration_min <- df_filtered_before_2015_genre_encoded$spotify_track_duration_ms/60000
-
-df_filtered_2000_15_genre_encoded$spotify_track_duration_ms <- NULL
-
-df_filtered_before_2015_genre_encoded$spotify_track_duration_ms <- NULL
-```
-
-```{r}
-
-# Deleting all the useless features
-df_filtered_2000_15_genre_encoded$week_position <- NULL
-df_filtered_2000_15_genre_encoded$performer <- NULL
-df_filtered_2000_15_genre_encoded$song_id <- NULL
-df_filtered_2000_15_genre_encoded$previous_week_position <- NULL
-df_filtered_2000_15_genre_encoded$peak_position <- NULL
-df_filtered_2000_15_genre_encoded$weeks_on_chart <- NULL
-df_filtered_2000_15_genre_encoded$year <- NULL
-
-df_filtered_before_2015_genre_encoded$week_position <- NULL
-df_filtered_before_2015_genre_encoded$performer <- NULL
-df_filtered_before_2015_genre_encoded$song_id <- NULL
-df_filtered_before_2015_genre_encoded$previous_week_position <- NULL
-df_filtered_before_2015_genre_encoded$peak_position <- NULL
-df_filtered_before_2015_genre_encoded$weeks_on_chart <- NULL
-df_filtered_before_2015_genre_encoded$year <- NULL
-
-```
-
-```{r}
-df_filtered_2000_15_genre_encoded <- unique(df_filtered_2000_15_genre_encoded)
-df_filtered_before_2015_genre_encoded <- unique(df_filtered_before_2015_genre_encoded)
-
-df_filtered_2000_15_genre_encoded
-df_filtered_before_2015_genre_encoded
-```
-
-
-
-```{r}
-registerDoParallel(cores = parallel::detectCores() - 1)
-
-set.seed(42)
-
-# 1. Split
-split <- initial_split(df_filtered_2000_15_genre_encoded, prop = 0.8)
-#split <- initial_split(regression_data_encoded_scaled, prop = 0.8)
-train_data <- training(split)
-test_data  <- testing(split)
-
-# 2. Recipe
-recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
-  step_dummy(all_nominal_predictors(), one_hot = TRUE)
-
-# 3. Resampling
-cv_folds <- vfold_cv(train_data, v = 5)
-
-# 4. Define the models with the parameters to tune
-models <- list(
-  rf = rand_forest(mtry = tune(), trees = 1000) %>%
-    set_engine("randomForest") %>% set_mode("regression"),
-
-  xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) %>%
-    set_engine("xgboost") %>% set_mode("regression"),
-
-  knn = nearest_neighbor(neighbors = tune()) %>%
-    set_engine("kknn") %>% set_mode("regression")
-)
-
-# 5. Create workflows
-workflows_list <- purrr::imap(models, function(model, name) {
-  workflow() %>%
-    add_model(model) %>%
-    add_recipe(recipe_spec)
-})
-
-# 6. Tuning with tune_race_anova
-tuned_models <- purrr::imap(workflows_list, function(wf, name) {
-  tune_race_anova(
-    wf,
-    resamples = cv_folds,
-    grid = 5,
-    metrics = metric_set(rmse),
-    control = control_race(verbose_elim = TRUE)
-  )
-})
-
-# 7. Exctract the best hiperparameters
-best_models <- purrr::map(tuned_models, ~ select_best(.x))
-
-# 8. Finalize and fit
-final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) %>% fit(data = train_data))
-
-# 9. Evaluate on test set
-results <- purrr::map(final_models, ~ {
-  predict(.x, test_data) %>%
-    bind_cols(test_data) %>%
-    metrics(truth = spotify_track_popularity, estimate = .pred)
-})
-
-# 10. RMSE results
-results_df <- bind_rows(results, .id = "model") %>%
-  filter(.metric == "rmse") %>%
-  arrange(.estimate)
-
-print(results_df)
-```
-
-```{r}
-all_predictions <- purrr::imap(final_models, ~ {
-  predict(.x, test_data) %>%
-    bind_cols(test_data) %>%
-    mutate(model = .y)
-}) %>% bind_rows()
-```
-
-
-```{r}
-ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
-  geom_point(alpha = 0.4, color = "steelblue") +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
-  facet_wrap(~model, scales = "free") +
-  labs(
-    title = "Predictions vs model values",
-    x = "Real values (spotify_track_popularity)",
-    y = "Predictions"
-  ) +
-  theme_minimal()
-```
-
-
-#Hypothesis test
-
-##Have songs from the last ten years become louder than before?
-We chose to perform this hypothesis test on the loudness because we noticed it was the most important feature among all the audio features of the songs.
-
-```{r}
-#selecting only the numeric features
-numeric_data_after_2000 <- df_filtered_2000_15_genre_encoded |>
-  select(where(is.numeric))
-
-#selecting all the features that are not related to the genre
-numeric_data_after_2000 <- numeric_data_after_2000 |>
-  select(1:(ncol(numeric_data_after_2000) - 27))
-par(mfrow = c(2,2))
-
-
-#plotting the QQ plots to show the distribution of the dataset
-for (colname in names(numeric_data_after_2000)) {
-  qqnorm(numeric_data_after_2000[[colname]], main = paste("QQ Plot -", colname))
-  qqline(numeric_data_after_2000[[colname]])
-}
-```
-
-```{r}
-#selecting only the numeric features
-numeric_data_before_2015 <- df_filtered_before_2015_genre_encoded |>
-  select(where(is.numeric))
-
-#selecting all the features that are not related to the genre
-numeric_data_before_2015 <- numeric_data_before_2015 |>
-  select(1:(ncol(numeric_data_before_2015) - 27))
-par(mfrow = c(2,2))
-
-#plotting the QQ plots to show the distribution of the dataset
-for (colname in names(numeric_data_before_2015)) {
-  qqnorm(numeric_data_before_2015[[colname]], main = paste("QQ Plot -", colname))
-  qqline(numeric_data_before_2015[[colname]])
-}
-```
-Based on the QQ plots for the periods before and after 2015, none of the feature distributions appear to be normal. Therefore, to compare the two distributions, we should use the Wilcoxon test.
-
-```{r}
-
-#Doing a wilcox test based on the loudness of the songs
-wilcox.test(
-  df_filtered_2000_15_genre_encoded$loudness,
-  df_filtered_before_2015_genre_encoded$loudness,
-  alternative = "greater"
-)
-
-#filtering the datasets with only the loudness feature
-loudness_after_2000 <- df_filtered_2000_15_genre_encoded$loudness
-loudness_before_2015 <- df_filtered_before_2015_genre_encoded$loudness
-
-
-plot(density(loudness_after_2000), col = "blue", lwd = 2,
-     main = "Loudness Density: After 2000 vs Before 2000", xlab = "Loudness")
-lines(density(loudness_before_2015), col = "red", lwd = 2)
-
-legend("topright", legend = c("After 2000", "Before 2000"), col = c("blue", "red"), lwd = 2)
-```
-As we can see from the two distributions, songs released after 2015 are louder than those released before. Why is that? This could be due to the evolution of music over the years—listeners' tastes have changed, and artists have explored new styles, adapting their sound to the cultural and historical context.
-
-=======
-filtro last week in top 30
->>>>>>> Stashed changes
