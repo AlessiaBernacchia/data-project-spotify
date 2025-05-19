@@ -288,8 +288,8 @@ ggplot(numeric_data_long, aes(x = value)) +
 
 QQ plot
 
-```{r}
-par(mfrow = c(5, 5))  # cambia a seconda del numero di variabili
+```{r QQ-plots, cache=TRUE}
+par(mfrow = c(2, 2))  # cambia a seconda del numero di variabili
 
 for (colname in names(numeric_data)) {
   qqnorm(numeric_data[[colname]], main = paste("QQ Plot -", colname))
@@ -894,6 +894,7 @@ print(head(regression_data_after, 5))
 <!-- ``` -->
 
 ```{r small-model, cache=True}
+set.seed(45)
 library(tidymodels)
 library(furrr)
 
