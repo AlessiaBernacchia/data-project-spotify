@@ -445,80 +445,141 @@ print(head(regression_data_encoded_scaled, 5))
 
 #### Regressions
 
-1.  split the dataset
+<!-- 1.  split the dataset -->
 
-```{r}
-set.seed(45)
-split <- initial_split(head(regression_data_encoded,n_samples_to_consider), prop = 0.8)
+<!-- ```{r} -->
+<!-- set.seed(45) -->
+<!-- split <- initial_split(head(regression_data_encoded,n_samples_to_consider), prop = 0.8) -->
+<!-- train_data <- training(split) -->
+<!-- test_data  <- testing(split) -->
+
+<!-- # resampling for cross validation -->
+<!-- cv_folds <- vfold_cv(train_data, v = 5) -->
+<!-- ``` -->
+
+<!-- 2.  define recipe, models and workflows -->
+
+<!-- ```{r} -->
+<!-- # recipe -->
+<!-- recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) |> -->
+<!--   step_dummy(all_nominal_predictors(), one_hot = TRUE) -->
+
+<!-- # models with tuning parameters -->
+<!-- task = 'regression' -->
+<!-- models <- list( -->
+<!--   rf = rand_forest(mtry = tune(), trees = 500) |> -->
+<!--     set_engine("randomForest") |> set_mode(task), -->
+
+<!--   xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) |> -->
+<!--     set_engine("xgboost") |> set_mode(task), -->
+
+<!--   knn = nearest_neighbor(neighbors = tune()) |> -->
+<!--     set_engine("kknn") |> set_mode(task) -->
+<!-- ) -->
+
+<!-- # workflows -->
+<!-- workflows_list <- purrr::imap(models, function(model, name) { -->
+<!--   workflow() |> add_model(model) |> add_recipe(recipe_spec) -->
+<!-- }) -->
+<!-- ``` -->
+
+<!-- 3.  tuning -->
+
+<!-- ```{r} -->
+<!-- # tune_race_anova -->
+<!-- tuned_models <- purrr::imap(workflows_list, function(wf, name) { -->
+<!--   tune_race_anova( -->
+<!--     wf, -->
+<!--     resamples = cv_folds, -->
+<!--     grid = 5, -->
+<!--     metrics = metric_set(rmse), -->
+<!--     control = control_race(verbose_elim = TRUE) -->
+<!--   )}) -->
+
+<!-- # extract best values -->
+<!-- best_models <- purrr::map(tuned_models, ~ select_best(.x)) -->
+<!-- ``` -->
+
+<!-- 4.  finalize and fits the models to the training set -->
+
+<!-- ```{r} -->
+<!-- final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) |> fit(data = train_data)) -->
+<!-- ``` -->
+
+<!-- 5.  evaluation on the test set -->
+
+<!-- ```{r} -->
+<!-- results <- purrr::map(final_models, ~ { -->
+<!--   predict(.x, test_data) |> -->
+<!--     bind_cols(test_data) |> -->
+<!--     metrics(truth = spotify_track_popularity, estimate = .pred)}) -->
+
+<!-- # summary RMSE -->
+<!-- results_df <- bind_rows(results, .id = "model") |> -->
+<!--   filter(.metric == "rmse") |> arrange(.estimate) -->
+
+<!-- print(results_df) -->
+<!-- ``` -->
+
+```{r big-model, cache=TRUE}
+library(tidymodels)
+library(furrr)
+
+plan(multisession, workers = 6)
+
+# 1. Split
+split <- initial_split(regression_data_encoded_scaled, prop = 0.8)
 train_data <- training(split)
 test_data  <- testing(split)
 
-# resampling for cross validation
-cv_folds <- vfold_cv(train_data, v = 5)
-```
-
-2.  define recipe, models and workflows
-
-```{r}
-# recipe
-recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) |>
+# 2. Recipe
+recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
   step_dummy(all_nominal_predictors(), one_hot = TRUE)
 
-# models with tuning parameters
-task = 'regression'
+# 3. Resampling (non usato direttamente, ma mantenuto)
+cv_folds <- vfold_cv(train_data, v = 5)
+
+# 4. Modelli con parametri fissi
 models <- list(
-  rf = rand_forest(mtry = tune(), trees = 500) |>
-    set_engine("randomForest") |> set_mode(task),
-  
-  xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) |>
-    set_engine("xgboost") |> set_mode(task),
-  
-  knn = nearest_neighbor(neighbors = tune()) |>
-    set_engine("kknn") |> set_mode(task)
+  rf = rand_forest(mtry = 5, trees = 500) %>%
+    set_engine("randomForest") %>% set_mode("regression"),
+
+  xgb = boost_tree(trees = 1000, tree_depth = 6, learn_rate = 0.1) %>%
+    set_engine("xgboost") %>% set_mode("regression"),
+
+  knn = nearest_neighbor(neighbors = 7) %>%
+    set_engine("kknn") %>% set_mode("regression")
 )
 
-# workflows
+# 5. Workflow per ciascun modello
 workflows_list <- purrr::imap(models, function(model, name) {
-  workflow() |> add_model(model) |> add_recipe(recipe_spec)
+  workflow() %>%
+    add_model(model) %>%
+    add_recipe(recipe_spec)
 })
-```
 
-3.  tuning
+# 6. Fit parallelo
+final_models <- furrr::future_map(workflows_list, function(wf) {
+  library(tidymodels)  # necessario dentro il worker
+  fit(wf, data = train_data)
+})
 
-```{r}
-# tune_race_anova
-tuned_models <- purrr::imap(workflows_list, function(wf, name) {
-  tune_race_anova(
-    wf,
-    resamples = cv_folds,
-    grid = 5,
-    metrics = metric_set(rmse),
-    control = control_race(verbose_elim = TRUE)
-  )})
+# 7. Predizione + metriche parallele
+results <- furrr::future_map(final_models, ~ {
+  predict(.x, test_data) %>%
+    bind_cols(test_data) %>%
+    metrics(truth = spotify_track_popularity, estimate = .pred)
+})
 
-# extract best values
-best_models <- purrr::map(tuned_models, ~ select_best(.x))
-```
-
-4.  finalize and fits the models to the training set
-
-```{r}
-final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) |> fit(data = train_data))
-```
-
-5.  evaluation on the test set
-
-```{r}
-results <- purrr::map(final_models, ~ {
-  predict(.x, test_data) |>
-    bind_cols(test_data) |>
-    metrics(truth = spotify_track_popularity, estimate = .pred)})
-
-# summary RMSE
-results_df <- bind_rows(results, .id = "model") |>
-  filter(.metric == "rmse") |> arrange(.estimate)
+# 8. Riassunto risultati
+results_df <- bind_rows(results, .id = "model") %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
 
 print(results_df)
+
+# Torna a sequenziale
+plan(sequential)
 ```
 
 ```{r}
@@ -759,77 +820,138 @@ print(head(regression_data_after, 5))
 ```
 
 #### Regressions
-1. split the dataset
-```{r}
-registerDoParallel(cores = parallel::detectCores() - 1)
+<!-- 1. split the dataset -->
+<!-- ```{r} -->
+<!-- registerDoParallel(cores = parallel::detectCores() - 1) -->
 
-set.seed(45)
-split <- initial_split(head(regression_data_after, n_samples_to_consider), prop = 0.8)
+<!-- set.seed(45) -->
+<!-- split <- initial_split(head(regression_data_after, n_samples_to_consider), prop = 0.8) -->
+<!-- train_data <- training(split) -->
+<!-- test_data  <- testing(split) -->
+
+<!-- # resampling for cross validation -->
+<!-- cv_folds <- vfold_cv(train_data, v = 5) -->
+<!-- ``` -->
+
+<!-- 2. define recipe, models and workflows -->
+<!-- ```{r} -->
+<!-- # recipe -->
+<!-- recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) |> -->
+<!--   step_dummy(all_nominal_predictors(), one_hot = TRUE) -->
+
+<!-- # models with tuning parameters -->
+<!-- task = 'regression' -->
+<!-- models <- list( -->
+<!--   rf = rand_forest(mtry = tune(), trees = 500) |> -->
+<!--     set_engine("randomForest") |> set_mode(task), -->
+
+<!--   xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) |> -->
+<!--     set_engine("xgboost") |> set_mode(task), -->
+
+<!--   knn = nearest_neighbor(neighbors = tune()) |> -->
+<!--     set_engine("kknn") |> set_mode(task) -->
+<!-- ) -->
+
+<!-- # workflows -->
+<!-- workflows_list <- purrr::imap(models, function(model, name) { -->
+<!--   workflow() |> add_model(model) |> add_recipe(recipe_spec) -->
+<!-- }) -->
+<!-- ``` -->
+
+<!-- 3. tuning -->
+<!-- ```{r} -->
+<!-- # tune_race_anova -->
+<!-- tuned_models <- purrr::imap(workflows_list, function(wf, name) { -->
+<!--   tune_race_anova( -->
+<!--     wf, -->
+<!--     resamples = cv_folds, -->
+<!--     grid = 5, -->
+<!--     metrics = metric_set(rmse), -->
+<!--     control = control_race(verbose_elim = TRUE) -->
+<!--   )}) -->
+
+<!-- # extract best values -->
+<!-- best_models <- purrr::map(tuned_models, ~ select_best(.x)) -->
+<!-- ``` -->
+
+<!-- 4. finalize and fits the models to the training set -->
+<!-- ```{r} -->
+<!-- final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) |> fit(data = train_data)) -->
+<!-- ``` -->
+
+<!-- 5. evaluation on the test set -->
+<!-- ```{r} -->
+<!-- results <- purrr::map(final_models, ~ { -->
+<!--   predict(.x, test_data) |> -->
+<!--     bind_cols(test_data) |> -->
+<!--     metrics(truth = spotify_track_popularity, estimate = .pred)}) -->
+
+<!-- # summary RMSE -->
+<!-- results_df <- bind_rows(results, .id = "model") |> -->
+<!--   filter(.metric == "rmse") |> arrange(.estimate) -->
+
+<!-- print(results_df) -->
+<!-- ``` -->
+
+```{r small-model, cache=True}
+library(tidymodels)
+library(furrr)
+
+plan(multisession, workers = 6)
+
+# 1. Split
+split <- initial_split(regression_data_after, prop = 0.8)
 train_data <- training(split)
 test_data  <- testing(split)
 
-# resampling for cross validation
-cv_folds <- vfold_cv(train_data, v = 5)
-```
-
-2. define recipe, models and workflows
-```{r}
-# recipe
-recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) |>
+# 2. Recipe
+recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
   step_dummy(all_nominal_predictors(), one_hot = TRUE)
 
-# models with tuning parameters
-task = 'regression'
+# 3. Resampling (non usato qui)
+cv_folds <- vfold_cv(train_data, v = 5)
+
+# 4. Modelli con parametri fissi
 models <- list(
-  rf = rand_forest(mtry = tune(), trees = 500) |>
-    set_engine("randomForest") |> set_mode(task),
-  
-  xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) |>
-    set_engine("xgboost") |> set_mode(task),
-  
-  knn = nearest_neighbor(neighbors = tune()) |>
-    set_engine("kknn") |> set_mode(task)
+  rf = rand_forest(mtry = 5, trees = 500) %>%
+    set_engine("randomForest") %>% set_mode("regression"),
+
+  xgb = boost_tree(trees = 1000, tree_depth = 6, learn_rate = 0.1) %>%
+    set_engine("xgboost") %>% set_mode("regression"),
+
+  knn = nearest_neighbor(neighbors = 7) %>%
+    set_engine("kknn") %>% set_mode("regression")
 )
 
-# workflows
+# 5. Workflows
 workflows_list <- purrr::imap(models, function(model, name) {
-  workflow() |> add_model(model) |> add_recipe(recipe_spec)
+  workflow() %>%
+    add_model(model) %>%
+    add_recipe(recipe_spec)
 })
-```
 
-3. tuning
-```{r}
-# tune_race_anova
-tuned_models <- purrr::imap(workflows_list, function(wf, name) {
-  tune_race_anova(
-    wf,
-    resamples = cv_folds,
-    grid = 5,
-    metrics = metric_set(rmse),
-    control = control_race(verbose_elim = TRUE)
-  )})
+# 6. Fit parallelo
+final_models <- furrr::future_map(workflows_list, function(wf) {
+  library(tidymodels)  # necessario dentro il worker
+  fit(wf, data = train_data)
+})
 
-# extract best values
-best_models <- purrr::map(tuned_models, ~ select_best(.x))
-```
+# 7. Valuta su test set in parallelo
+results <- furrr::future_map(final_models, ~ {
+  predict(.x, test_data) %>%
+    bind_cols(test_data) %>%
+    metrics(truth = spotify_track_popularity, estimate = .pred)
+})
 
-4. finalize and fits the models to the training set
-```{r}
-final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) |> fit(data = train_data))
-```
-
-5. evaluation on the test set
-```{r}
-results <- purrr::map(final_models, ~ {
-  predict(.x, test_data) |>
-    bind_cols(test_data) |>
-    metrics(truth = spotify_track_popularity, estimate = .pred)})
-
-# summary RMSE
-results_df <- bind_rows(results, .id = "model") |>
-  filter(.metric == "rmse") |> arrange(.estimate)
+# 8. Riassunto RMSE
+results_df <- bind_rows(results, .id = "model") %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
 
 print(results_df)
+
+# (opzionale) chiudi il cluster
+plan(sequential)
 ```
 
 ```{r}
