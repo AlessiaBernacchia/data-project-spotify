@@ -440,7 +440,7 @@ regression_data_encoded_scaled <- robustHD::standardize(regression_data_encoded 
 
 regression_data_encoded_scaled['spotify_track_popularity'] = regression_data$spotify_track_popularity
 
-print(head(regression_data_encoded_scaled, 5))
+regression_data_encoded_scaled
 ```
 
 #### Regressions
@@ -524,6 +524,7 @@ print(head(regression_data_encoded_scaled, 5))
 ```{r big-model, cache=TRUE}
 library(tidymodels)
 library(furrr)
+set.seed(45)
 
 plan(multisession, workers = 6)
 
@@ -536,10 +537,10 @@ test_data  <- testing(split)
 recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
   step_dummy(all_nominal_predictors(), one_hot = TRUE)
 
-# 3. Resampling
+# 3. Resampling (non usato direttamente, ma mantenuto)
 cv_folds <- vfold_cv(train_data, v = 5)
 
-# 4. Models with tuned parameters
+# 4. Modelli con parametri fissi
 models <- list(
   rf = rand_forest(mtry = 5, trees = 500) %>%
     set_engine("randomForest") %>% set_mode("regression"),
@@ -551,34 +552,34 @@ models <- list(
     set_engine("kknn") %>% set_mode("regression")
 )
 
-# 5. Workflow for each model
+# 5. Workflow per ciascun modello
 workflows_list <- purrr::imap(models, function(model, name) {
   workflow() %>%
     add_model(model) %>%
     add_recipe(recipe_spec)
 })
 
-# 6. Parallel fitting
+# 6. Fit parallelo
 final_models <- furrr::future_map(workflows_list, function(wf) {
-  library(tidymodels)
+  library(tidymodels)  # necessario dentro il worker
   fit(wf, data = train_data)
 })
 
-# 7. Parallel predictions on test set
+# 7. Predizione + metriche parallele
 results <- furrr::future_map(final_models, ~ {
   predict(.x, test_data) %>%
     bind_cols(test_data) %>%
     metrics(truth = spotify_track_popularity, estimate = .pred)
 })
 
-# 8. Results
+# 8. Riassunto risultati
 results_df <- bind_rows(results, .id = "model") %>%
   filter(.metric == "rmse") %>%
   arrange(.estimate)
 
 print(results_df)
 
-# Let's continue the program sequentially
+# Torna a sequenziale
 plan(sequential)
 ```
 
@@ -613,13 +614,13 @@ vip_plots <- list()
 # Random Forest
 rf_fit <- extract_fit_parsnip(final_models$rf)
 if (inherits(rf_fit$fit, "randomForest")) {
-  vip_plots$rf <- vip(rf_fit$fit, num_features = 15) + ggtitle("Random Forest - Variable Importance")
+  vip_plots$rf <- vip(rf_fit$fit, num_features = 15) + ggtitle("Random Forest")
 }
 
 # XGBoost
 xgb_fit <- extract_fit_parsnip(final_models$xgb)
 if (inherits(xgb_fit$fit, "xgb.Booster")) {
-  vip_plots$xgb <- vip(xgb_fit$fit, num_features = 15) + ggtitle("XGBoost - Variable Importance")
+  vip_plots$xgb <- vip(xgb_fit$fit, num_features = 15) + ggtitle("XGBoost")
 }
 
 # visualize plots
@@ -703,7 +704,7 @@ ggplot(classification_data, aes(x = spotify_track_popularity)) +
 split
 
 ```{r}
-set.seed(42)
+set.seed(45)
 spotify_train_test <- classification_data |> initial_split(prop =  0.7)
 spotify_train <- training(spotify_train_test) 
 spotify_test  <- testing(spotify_train_test)
@@ -774,32 +775,32 @@ data_filtered$spotify_track_duration_min <- data_filtered$spotify_track_duration
 data_filtered <- data_filtered |> select(-c(spotify_track_duration_ms))
 ```
 
-Filter the song after 2010
+Filter the song after 2000
 ```{r}
 bound_year = 2010
 
-data_filtered_after <- data_filtered[data_filtered$year >= bound_year & data_filtered$year < 2025, ]
+data_filtered_after <- data_filtered[data_filtered$year >= bound_year & data_filtered$year < 2021, ]
 data_filtered_before <- data_filtered[data_filtered$year < bound_year, ]
 ```
 
 encode the most frequent 15 genres for each period
 ```{r}
 data_filtered_after_encoded <- extract_first_genre(data_filtered_after) 
-data_filtered_after_encoded <- process_and_encode_genre(data_filtered_after_encoded, top_n = 10)
+data_filtered_after_encoded <- process_and_encode_genre(data_filtered_after_encoded, top_n = 15)
 
 data_filtered_before_encoded <- extract_first_genre(data_filtered_before) 
-data_filtered_before_encoded <- process_and_encode_genre(data_filtered_before_encoded, top_n = 10)
+data_filtered_before_encoded <- process_and_encode_genre(data_filtered_before_encoded, top_n = 15)
 ```
 
 remove duplicates
 ```{r}
+data_filtered_after_encoded$year <- NULL
 data_filtered_after_encoded <- unique(data_filtered_after_encoded)
 data_filtered_before_encoded <- unique(data_filtered_before_encoded)
 ```
 
 ```{r}
-print(head(data_filtered_after_encoded, 5))
-print(head(data_filtered_before_encoded, 5))
+data_filtered_after_encoded
 ```
 
 ### 5.2 Regression after 2000
@@ -809,13 +810,14 @@ regression_data_after <- data_filtered_after_encoded |> select(-c(performer, son
 ```
 
 Scale the features
+<<<<<<<<<<<<<<<<<TODO: vedere se mettere uno unique per ogni anno --> problema riassegnare target>>>>>>>>>>>>>>>>>>>>
 ```{r}
-regression_data_after <- robustHD::standardize(regression_data_after |> select(-c( year, spotify_track_popularity)))
+#regression_data_after <- robustHD::standardize(regression_data_after |> select(-c( year, spotify_track_popularity)))
 regression_data_after$spotify_track_popularity <- data_filtered_after_encoded$spotify_track_popularity
 regression_data_after <- unique(regression_data_after)
 
-#regression_data_after$year <- data_filtered_after_encoded$year
-print(head(regression_data_after, 5))
+#regression_data_after$year <- data_filtered_after_encoded$ye
+regression_data
 ```
 
 #### Regressions
@@ -892,6 +894,19 @@ print(head(regression_data_after, 5))
 <!-- print(results_df) -->
 <!-- ``` -->
 
+```{r}
+# compute correlation matrix
+cor_matrix <- cor(regression_data_after, use = "complete.obs")
+
+# correlation heatmap
+corrplot(cor_matrix, method = "color", 
+         type = "upper", tl.col = "black", 
+         #number.cex = 0.7, addCoef.col = "black",
+         tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
+```
+
+
+
 ```{r small-model, cache=True}
 set.seed(45)
 library(tidymodels)
@@ -908,10 +923,10 @@ test_data  <- testing(split)
 recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
   step_dummy(all_nominal_predictors(), one_hot = TRUE)
 
-# 3. Resampling
+# 3. Resampling (non usato qui)
 cv_folds <- vfold_cv(train_data, v = 5)
 
-# 4. Models with tuned parameters
+# 4. Modelli con parametri fissi
 models <- list(
   rf = rand_forest(mtry = 5, trees = 500) %>%
     set_engine("randomForest") %>% set_mode("regression"),
@@ -923,36 +938,40 @@ models <- list(
     set_engine("kknn") %>% set_mode("regression")
 )
 
-# 5. Workflow for each model
+# 5. Workflows
 workflows_list <- purrr::imap(models, function(model, name) {
   workflow() %>%
     add_model(model) %>%
     add_recipe(recipe_spec)
 })
 
-# 6. Parallel fitting
+# 6. Fit parallelo
 final_models <- furrr::future_map(workflows_list, function(wf) {
-  library(tidymodels)
+  library(tidymodels)  # necessario dentro il worker
   fit(wf, data = train_data)
 })
 
-# 7. Parallel predictions on test set
+# 7. Valuta su test set in parallelo
 results <- furrr::future_map(final_models, ~ {
   predict(.x, test_data) %>%
     bind_cols(test_data) %>%
     metrics(truth = spotify_track_popularity, estimate = .pred)
 })
 
-# 8. Results
+# 8. Riassunto RMSE
 results_df <- bind_rows(results, .id = "model") %>%
   filter(.metric == "rmse") %>%
   arrange(.estimate)
 
 print(results_df)
 
-# Let's continue the program sequentially
+# (opzionale) chiudi il cluster
 plan(sequential)
 ```
+```{r}
+regression_data_after
+```
+
 
 ```{r}
 all_predictions <- purrr::imap(final_models, ~ {
@@ -984,13 +1003,13 @@ vip_plots <- list()
 # Random Forest
 rf_fit <- extract_fit_parsnip(final_models$rf)
 if (inherits(rf_fit$fit, "randomForest")) {
-  vip_plots$rf <- vip(rf_fit$fit, num_features = 15) + ggtitle("Random Forest - Variable Importance")
+  vip_plots$rf <- vip(rf_fit$fit, num_features = 15) + ggtitle("Random Forest")
 }
 
 # XGBoost
 xgb_fit <- extract_fit_parsnip(final_models$xgb)
 if (inherits(xgb_fit$fit, "xgb.Booster")) {
-  vip_plots$xgb <- vip(xgb_fit$fit, num_features = 15) + ggtitle("XGBoost - Variable Importance")
+  vip_plots$xgb <- vip(xgb_fit$fit, num_features = 15) + ggtitle("XGBoost")
 }
 
 # visualize plots
@@ -1003,6 +1022,9 @@ if (length(vip_plots) == 2) {
   # if only one is possible
   vip_plots[[1]]
 }
+```
+```{r}
+
 ```
 
 QQ plot
@@ -1017,6 +1039,10 @@ for (colname in names(numeric_data)) {
 ```
 
 > Sono questi due periodi diversi?? Guardiamo i primi due elementi
+
+```{r}
+```
+
 
 ```{r}
 loudness_summary <- full_data_clean %>%
@@ -1036,6 +1062,49 @@ ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
        x = "Year", y = "Average Loudness (dB)") +
   theme_minimal()
 ```
+
+
+```{r}
+
+loudness_summary <- full_data_clean %>%
+  group_by(year) %>%
+  summarise(
+    mean_loudness = mean(spotify_track_duration_ms, na.rm = TRUE),
+    sd_loudness = sd(spotify_track_duration_ms, na.rm = TRUE),
+    n = n(),
+    se = sd_loudness / sqrt(n)  # standard error
+  )
+
+ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_ribbon(aes(ymin = mean_loudness - se, ymax = mean_loudness + se), 
+              fill = "lightblue", alpha = 0.4) +
+  labs(title = "Track duration over the Years",
+       x = "Year", y = "track duration (ms)") +
+  theme_minimal()
+
+```
+```{r}
+
+loudness_summary <- full_data_clean %>%
+  group_by(year) %>%
+  summarise(
+    mean_loudness = mean(acousticness, na.rm = TRUE),
+    sd_loudness = sd(acousticness, na.rm = TRUE),
+    n = n(),
+    se = sd_loudness / sqrt(n)  # standard error
+  )
+
+ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_ribbon(aes(ymin = mean_loudness - se, ymax = mean_loudness + se), 
+              fill = "lightblue", alpha = 0.4) +
+  labs(title = "Acousticness over the Years",
+       x = "Year", y = "Acousticness") +
+  theme_minimal()
+
+```
+
 
 ## 6. Have songs from the last ten years become louder than before? We chose to perform this hypothesis test on the loudness because we noticed it was the most important feature among all the audio features of the songs.
 
@@ -1085,21 +1154,21 @@ Based on the QQ plots for the periods before and after 2015, none of the feature
 ```{r}
 #Doing a wilcox test based on the loudness of the songs
 wilcox.test(
-  hypothesis_data_after$loudness,
-  hypothesis_data_before$loudness,
-  alternative = "greater"
+  hypothesis_data_after$spotify_track_duration_min,
+  hypothesis_data_before$spotify_track_duration_min,
+  alternative = "less"
 )
 
 #filtering the datasets with only the loudness feature
-loudness_after <- hypothesis_data_after$loudness
-loudness_before <- hypothesis_data_before$loudness
+loudness_after <- hypothesis_data_after$spotify_track_duration_min
+loudness_before <- hypothesis_data_before$spotify_track_duration_min
 
 
 plot(density(loudness_after), col = "blue", lwd = 2,
-     main = "Loudness Density: After 2000 vs Before 2000", xlab = "Loudness")
+     main = "Spotify track duration min Density: After 2010 vs Before 2010", xlab = "duration")
 lines(density(loudness_before), col = "red", lwd = 2)
 
-legend("topright", legend = c("After 2000", "Before 2000"), col = c("blue", "red"), lwd = 2)
+legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
 ```
 
 As we can see from the two distributions, songs released after 2015 are louder than those released before. Why is that? This could be due to the evolution of music over the years—listeners' tastes have changed, and artists have explored new styles, adapting their sound to the cultural and historical context.
@@ -1203,7 +1272,7 @@ ggplot(all_predictions, aes(x = final_position, y = .pred)) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
   facet_wrap(~model, scales = "free") +
   labs(
-    title = "Predictions vs Real Values per Modello",
+    title = "Predictions vs Real Values",
     x = "Real Values (spotify_track_popularity)",
     y = "Predictions"
   ) +
