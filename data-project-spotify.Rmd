@@ -5,11 +5,13 @@ output: html_notebook
 
 # Spotify Project
 
-In this project we will analyse the evolution of the music, from 1956 until now.
+Understanding what makes a song popular has always been a topic of interest for artists, producers, and researchers. With the increasing availability of music data from platforms like Spotify and Billboard, we now have the opportunity to analyze musical trends over time using quantitative methods.
 
--   First we start to explore whether is possible to predict the popularity of a song from its audio features
+In this project, we aim to investigate whether it is possible to predict a song’s popularity based on its audio features. We begin with a broad historical analysis spanning from 1956 to today, then narrow our focus to the last 25 years, a period we believe better reflects modern listening habits and production styles.
 
--   In second
+Through data preprocessing, feature engineering, and statistical analysis, we build and evaluate models to forecast not only immediate success but also a song’s long-term presence in the charts. Our goal is to better understand the relationship between music characteristics and commercial success, and to explore how this relationship has evolved over time.
+
+**Abstract**: This project explores the evolution of music from 1956 to the present, with a focus on predicting song popularity based on audio features. After an initial global analysis, we restrict our attention to the last 25 years to better reflect contemporary musical trends and production standards. Using statistical analysis and machine learning models, we assess the relationship between audio characteristics and a song's chart success. We also conduct hypothesis testing to evaluate how changes in music over time impact our findings. Finally, we propose two models aimed at predicting not only a song's immediate popularity, but also its long-term staying power in the charts.
 
 link to the **dataset**: [jonhthgeek-DataSetSpotify](https://github.com/rfordatascience/tidytuesday/blob/main/data/2021/2021-09-14/readme.md)
 
@@ -52,7 +54,7 @@ library(ggcorrplot)
 # for classification
 library(pROC)
 ```
-
+In this section we collected all the functions used among the document:
 *Functions*:
 
 ```{r}
@@ -247,10 +249,43 @@ full_data <- left_join(billboard, audio_features, by = "song_id") # merge datase
 ```{r}
 glimpse(full_data)
 ```
+The dataset consists of 298,117 rows and 22 columns. Each row represents a weekly chart appearance of a song, not a unique song itself — which means the same song may appear multiple times with different `week_id` values.
+
+The columns contain a wide range of information:
+
+- **Chart metadata**: such as `week_id`, `week_position`, `previous_week_position`, `peak_position`, and `weeks_on_chart`.
+- **Song information**: including `performer`, `song_id`, and `spotify_genre`.
+- **Spotify audio features**: such as `danceability`, `energy`, `acousticness`, `valence`, and `tempo`, which describe the musical properties of the tracks.
+- **Additional metadata**: including `spotify_track_duration_ms`, `key`, `mode`, `speechiness`, `instrumentalness`, `liveness`, and `time_signature`.
+- **Popularity**: The column `spotify_track_popularity` provides Spotify's internal popularity score, which can be useful as a target or benchmark in predictive tasks.
+
+It is also important to note that some values are missing (`NA`), especially in Spotify-related fields, likely due to older songs not being available or fully processed on Spotify.
+
 
 ```{r}
 summary(full_data)
 ```
+This summary provides descriptive statistics for the dataset's variables.
+
+- **Chart-related variables** such as `week_position`, `previous_week_position`, and `peak_position` range from 1 to 100, with a fairly uniform median around 46–47. The number of weeks a song remains on the chart (`weeks_on_chart`) ranges from 2 to 87, with a median of 8 weeks.
+
+- **Track duration** (`spotify_track_duration_ms`) varies significantly, with a median of about 3.75 minutes (225,173 ms) and some outliers over 50 minutes, suggesting the presence of non-standard tracks (e.g., extended versions or errors). Around 13% of entries lack this information (`NA`s).
+
+- **Audio features** (from Spotify) such as `danceability`, `energy`, `valence`, and `tempo` show a wide distribution:
+  - `Danceability` and `energy` have median values around 0.62 and 0.65, respectively, indicating moderately upbeat music on average.
+  - `Valence` (musical positivity) has a median of 0.62, suggesting a tendency toward emotionally positive tracks.
+  - `Tempo` ranges from 0 to over 240 BPM, with a median around 118 BPM, typical of many popular genres.
+
+- **Musical characteristics** such as `key`, `mode`, and `time_signature` confirm that most tracks are in common time (4/4), with keys distributed across the full 0–11 range (representing the 12 semitones).
+
+- **Other audio descriptors**:
+  - `Speechiness` and `instrumentalness` are mostly low, which is expected in mainstream songs.
+  - `Acousticness` and `liveness` show a broader spread, indicating a mix of electronic and live/acoustic content.
+
+- **Popularity** (`spotify_track_popularity`) ranges from 0 to 100, with a median of 51. This variable could be considered as a potential target for prediction tasks. Like many other Spotify features, it has missing values in about 13% of rows.
+
+Overall, this summary confirms that the dataset is rich and varied, but also highlights the need to address missing values (notably in Spotify-provided fields) before modeling or deeper analysis.
+
 
 ### 2.1 Missing Values
 
@@ -258,6 +293,16 @@ summary(full_data)
 na_counts <- count_na_per_column_df(full_data)
 print(na_counts)
 ```
+
+The original dataset contained 39,819 missing values in various Spotify-related columns (approximately 13% of the total 298,117 rows).
+
+To address this, we applied the following cleaning strategy:
+
+- For the `previous_week_position` variable, missing values were replaced with `0`, under the assumption that songs entering the chart for the first time do not have a previous position.
+
+- For all other missing values, we removed the corresponding rows using `na.omit()`. This resulted in a cleaned dataset (`full_data_clean`) with **258,298 rows** and **22 columns**, preserving the structure while reducing the potential impact of missing or incomplete data on the analysis.
+
+We considered this data loss acceptable, as the percentage of removed rows was relatively small and unlikely to introduce significant bias.
 
 ```{r}
 full_data_clean <- full_data
@@ -285,6 +330,31 @@ ggplot(numeric_data_long, aes(x = value)) +
   theme_minimal()
 #ggsave("0_numeric_histogram_distribution.png", width = 12, height = 16)
 ```
+The histogram grid above shows the distribution of key numerical features in the cleaned dataset. Several observations can be made:
+
+- **Audio features** such as `danceability`, `energy`, and `tempo` tend to follow approximately normal or slightly skewed distributions:
+  - `Danceability` and `energy` peak around 0.6, suggesting that most songs are rhythmically engaging and energetic.
+  - `Tempo` shows a near-normal distribution centered around 120 BPM, which aligns with the typical tempo of pop music.
+
+- `Acousticness`, `instrumentalness`, and `speechiness` are highly right-skewed:
+  - Most songs have low values of `acousticness` and `instrumentalness`, indicating a predominance of electronically produced and vocal-heavy tracks.
+  - `Speechiness` values are concentrated near 0, suggesting that most songs are musical rather than spoken word (e.g., podcasts or rap with high spoken-word content are rare in the dataset).
+
+- **`Loudness`** follows a left-skewed distribution with a peak around -7 to -10 dB, reflecting the mastering norms in popular music.
+
+- **Chart metrics** (`week_position`, `peak_position`) are heavily skewed toward lower values, meaning that only a small fraction of songs reach top positions.
+
+- **`Weeks_on_chart`** shows that the majority of songs stay on the chart for fewer than 15 weeks, with only a few lasting longer than 30 weeks.
+
+- **Categorical-like features** such as `key`, `mode`, and `time_signature` are shown as numerical:
+  - The musical **key** is relatively evenly distributed across the 12 semitones, although some keys (e.g., 0, 5, 7) appear more often.
+  - **Mode** is binary and skewed toward major mode (`1`), reflecting the general preference for major-key music in popular songs.
+  - Most songs use a **time signature** of 4/4 (`4`), which is expected in mainstream music.
+
+- **Spotify-specific features** like `spotify_track_popularity` show a moderately normal distribution of popularity scores, centered around 50.
+
+Others seems to be all clustered in one bin and need to be explored furthermore.
+
 
 QQ plot
 
@@ -296,8 +366,15 @@ for (colname in names(numeric_data)) {
   qqline(numeric_data[[colname]])
 }
 ```
+QQ-plots are used to assess whether a variable follows a normal distribution by comparing observed and theoretical quantiles.
+From the plots, it is evident that none of the features are `perfectly normally distributed`. However, some variables such as `week_position`, `previous_week_position`, `peak_position`, `danceability` `energy` show a fairly linear pattern in the central part, suggesting an approximately normal distribution.
 
-Distribution of categorical data (due the fact there are too many unique values, we choose to filter and observe only the first 50 most frequent variables)
+Other features (e.g., `acousticness`, `instrumentalness`, `speechiness`, `liveness`) exhibit strong deviations, indicating skewness or the presence of outliers.
+
+
+
+
+Distribution of categorical data
 
 ```{r}
 categorical_data <- full_data_clean |> select(where(~ !is.numeric(.)))
@@ -320,13 +397,31 @@ ggplot(categorical_data_top50, aes(x = value, y = count)) +
     axis.text.x = element_blank() )
 #ggsave("0_categorical_histogram_distribution.png", width = 12, height = 16)
 ```
+To better understand the categorical variables with high cardinality, we visualized the frequency of the top 50 most common values for each feature:
+
+- `Performer`:  
+  The distribution shows a relatively balanced frequency across the top 50 performers, with a few artists standing out with over 750 occurrences. This suggests that some performers consistently appear in the charts (possibly due to sustained popularity or multiple hit songs), while the rest have moderate chart presence.
+
+- `Song ID`:  
+  Song appearances are fairly uniformly distributed among the top 50 songs, with each appearing between roughly 50 and 100 times. This indicates a fairly even recurrence of popular songs across different weeks, with no single track overwhelmingly dominating the dataset.
+
+- `Spotify Genre`:  
+  The genre distribution is more skewed. A few genres (possibly "pop", "dance pop", or "rap") dominate the top frequencies, with one genre exceeding 12,000 entries—suggesting a strong genre concentration in the dataset. The long tail highlights a wide variety of niche genres with fewer appearances.
+
+- `Week ID`:  
+  The number of records per week appears relatively consistent with some fluctuations. A slight increase toward the middle of the chart could indicate growing data volume or more tracked songs over time. The presence of a few dips may suggest data irregularities, holidays, or temporary drops in chart activity.
+
+
+
+These distributions help us understand the overall composition of the dataset and guide future decisions for modeling and feature engineering.
 
 ### 2.3 Cleaning
+
+`instrumentalness`, `time_signature`, `speechiness` and `spotify_track_duration_ms` from the plot seems to be single bin. let's zoom in.
 
 ```{r}
 hist(full_data_clean$instrumentalness)
 ```
-
 ```{r}
 hist(full_data_clean$time_signature)
 ```
@@ -338,6 +433,8 @@ hist(full_data_clean$speechiness)
 ```{r}
 hist(full_data_clean$spotify_track_duration_ms)
 ```
+
+`spotify_track_duration_ms` has the majority clustered between 2 to 4 minutes and a few outliers suggesting very long tracks.
 
 From the distribution of `instrumentalness` and `time signature` they seem to be not significant for our purpose. Then we decide to remove them.
 
@@ -356,6 +453,32 @@ ggplot(numeric_data_long, aes(x = value, y = "")) +
 #ggsave("0_numeric_boxplot_distribution.png", width = 12, height = 16)
 ```
 
+Through the boxplots of numerical features, we can observe the presence and distribution of outliers.  
+Below is a summary of the most significant variables:
+
+- **Many outliers are present in:**
+  - `instrumentalness`: all values above zero are marked as outliers. As seen earlier, this is because the vast majority of songs have this value at 0. For this reason, this feature will likely be discarded, as it is not relevant to our analysis.
+  - `speechiness`: several values above 0.3 are considered outliers; this indicates tracks with a strong vocal component (e.g., spoken word, rap).
+  - `spotify_track_duration_ms`: some tracks have extremely long durations (over 2 million milliseconds, i.e., ~30 minutes), which are anomalies compared to the average song length.
+  - `tempo`: some values above 200 BPM are rare and constitute outliers.
+  - `weeks_on_chart`: many points above the upper limit suggest a long chart presence for some songs, though they are not necessarily errors.
+  - `liveness` and `instrumentalness`: show skewed distributions with some extreme values close to 1.
+
+- **Features with few or no outliers:**
+  - `mode` and `key`: these are numerical categorical variables and show compact distributions without real outliers.
+  - `valence`, `danceability`, `energy`, and `acousticness`: these have more regular distributions, with few extreme values.
+
+- **Ordinal features (e.g., `peak_position`, `week_position`, `previous_week_position`)**:  
+  Outliers correspond to songs that ranked very high (low position numbers) or very low (high positions). These are not errors but actual reflections of chart dynamics.
+
+- Some outliers (e.g., excessively long durations or very high `tempo`) could be data entry errors and should be evaluated individually.
+- In other cases, such as `weeks_on_chart` or `speechiness`, outliers reflect real-world behavior (long-lasting hits or spoken tracks).
+
+Depending on the model used, we may:
+- keep the outliers if they make sense from a musical or commercial perspective;
+- normalize or transform them (e.g., log transformation for `spotify_track_duration_ms`);
+- or remove them if they are clearly erroneous or so rare that they distort the results.
+
 ### 2.5 Correlations
 
 ```{r}
@@ -370,9 +493,31 @@ corrplot(cor_matrix, method = "color",
 #ggsave("0_numeric_heatmap.png", width = 12, height = 16)
 ```
 
+The correlation matrix is a powerful tool, especially relevant when working with models where feature independence is important.  
+
+From the matrix, we can observe that, as expected, the three Billboard-related features — `week_position`, `previous_week_position`, and `peak_position` — are strongly correlated with each other. Additionally, `weeks_on_chart` is also correlated, though less strongly and in a negative direction.
+
+All other features show no significant correlations and can be considered independent. The only mild correlation is between `energy` and `acousticness`, which makes sense as more energetic songs tend to have less acoustic content (e.g., louder sounds, stronger beats).
+
+In conclusion, the only significantly correlated features that may pose a problem are the Billboard-related variables.
+
+
 ## 3. Global Preprocessing
+Global preprocessing is a crucial step when working with large, heterogeneous datasets like Billboard rankings and Spotify audio features. The raw data is typically recorded at a weekly level and contains many duplicate song entries across time. Without preprocessing, the dataset would be too granular and redundant for most machine learning models or meaningful statistical analysis.
+
+By aggregating the data at the song level, we:
+- **Reduce redundancy**, turning multiple weekly entries into a single representative row per song.
+- **Summarize chart performance** (e.g., best, worst, average position), which better captures a song’s commercial success.
+- **Enable feature merging** by aligning temporal data with static audio features.
+- **Improve model performance** by reducing noise and dimensionality.
+- **Prepare for clean, structured input** for clustering, classification, or regression models.
+
+This step ensures that we work with a consistent and compact dataset that better reflects the properties and success of individual songs, rather than noisy week-by-week fluctuations.
+
 
 ### 3.1 Aggregations
+In this step, we aggregate the weekly Billboard data at the song level to obtain summary statistics that represent a song's overall chart performance. This helps reduce redundancy and simplifies analysis by transforming time-series data into one record per song.
+
 
 ```{r}
 # new features creation
@@ -392,7 +537,7 @@ full_data_aggregate <- full_data_aggregate %>% select(-c(instrumentalness, time_
 print(head(full_data_aggregate, 5))
 
 ```
-
+The number of rows in each dataset gives an idea of how much data is retained through each step:
 ```{r}
 nrow(billboard)
 nrow(billboard_summary)
@@ -402,7 +547,7 @@ nrow(full_data_aggregate)
 ```
 
 ### 3.2 Add time columns
-
+Here, we add a `year` column extracted from the `week_id`, which allows for time-based analysis and filtering (e.g., focusing on recent years only).
 ```{r}
 full_data_clean <- full_data_clean |>
   select(colnames(full_data_clean),song_id,week_id)
@@ -411,6 +556,7 @@ full_data_clean$year <- as.numeric(sub(".*/.*/", "", full_data_clean$week_id))
 
 head(full_data_clean, 5)
 ```
+This `year` column will be useful for temporal segmentation in later steps (e.g., focusing only on the last 25 years).
 
 ## 4 Main Question - Given the audio features of a new song, will it become popular?
 
@@ -1123,9 +1269,9 @@ From what we can see above, the two periods have different distributions, even w
 After all this considerations we can say that there are many aspects that we have not considered. The Billboard dataset is much more suitable for timeseries analysis but we still do not have the capabilities to do that kind of evaluations. It would be very interesting to try to predict the position of a song in the next future based on his past. Anyway one thing that surely could be added to the dataset used for this project is the year of production of the different songs, this could help us in creating a model that maybe fitted the general period instead of just one snaphsot. This way the model would have an helpful reference on which different "styles" or genres were popular in a particular period.
 
 
-## Question 2 - As a manager, should I continue to invest in this song given its statistics? Will it remain popular over time?
+##7. Question 2 - As a manager, should I continue to invest in this song given its statistics? Will it remain popular over time?
 
-### Regression - predict the position on the Billboard
+###7.1 Regression - predict the position on the Billboard
 
 #### Preprocessing
 
@@ -1222,7 +1368,7 @@ if (length(vip_plots) == 2) {
 
 From what we can see here for both models, the average, max and min position are the most important features for predicting the position of a song. The importance of features decrease drastically after the first three for the XGboost model, meaning that they are irrelevant for predicting the position of the song.
 
-### Classification- predict whether a sign will be in the top 30
+###7.2 Classification- predict whether a sign will be in the top 30
 
 #### Preprocessing
 
@@ -1278,8 +1424,7 @@ corrplot(cor_matrix, method = "color",
 
 #ggsave("4_regression_heatmap.png", width = 12, height = 16)
 ```
-<<<<<<< Updated upstream
-=======
+
 Overoall, we can notice that the strongly correlated features are most likely the ones regarding the position, which are: min position, max position, average position and number of week on chart. In contrast, the audio features and genre-reated variables show a low coorelation between each others, making them the ideal features to help random forest to learn even more.
 
 
@@ -1288,7 +1433,6 @@ numeric_data_clss
 ```
 
 
->>>>>>> Stashed changes
 ```{r}
 hist(classification_data$top30)
 ```
