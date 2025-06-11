@@ -5,16 +5,13 @@ output: html_notebook
 
 # Spotify Project
 
-In this project, we analyze the evolution of music from 1956 to the present day.
+Understanding what makes a song popular has always been a topic of interest for artists, producers, and researchers. With the increasing availability of music data from platforms like Spotify and Billboard, we now have the opportunity to analyze musical trends over time using quantitative methods.
 
-- We begin by exploring whether it is possible to predict the popularity of a song based on its audio features.
+In this project, we aim to investigate whether it is possible to predict a song’s popularity based on its audio features. We begin with a broad historical analysis spanning from 1956 to today, then narrow our focus to the last 25 years, a period we believe better reflects modern listening habits and production styles.
 
-- Next, we focus on the last 25 years, as we consider this period more relevant for our objective: predicting whether a song will become popular today. This choice is motivated by the fact that both musical taste and music production have significantly evolved over time.
+Through data preprocessing, feature engineering, and statistical analysis, we build and evaluate models to forecast not only immediate success but also a song’s long-term presence in the charts. Our goal is to better understand the relationship between music characteristics and commercial success, and to explore how this relationship has evolved over time.
 
-- We then perform hypothesis testing and further evaluations to assess how these changes have influenced our analysis.
-
-- Finally, we include a brief additional analysis that we found interesting: we developed two models to evaluate whether it is possible to predict if a song will remain popular over time, based on its characteristics.
-
+**Abstract**: This project explores the evolution of music from 1956 to the present, with a focus on predicting song popularity based on audio features. After an initial global analysis, we restrict our attention to the last 25 years to better reflect contemporary musical trends and production standards. Using statistical analysis and machine learning models, we assess the relationship between audio characteristics and a song's chart success. We also conduct hypothesis testing to evaluate how changes in music over time impact our findings. Finally, we propose two models aimed at predicting not only a song's immediate popularity, but also its long-term staying power in the charts.
 
 link to the **dataset**: [jonhthgeek-DataSetSpotify](https://github.com/rfordatascience/tidytuesday/blob/main/data/2021/2021-09-14/readme.md)
 
@@ -1370,7 +1367,7 @@ if (length(vip_plots) == 2) {
 
 From what we can see here for both models, the average, max and min position are the most important features for predicting the position of a song. The importance of features decrease drastically after the first three for the XGboost model, meaning that they are irrelevant for predicting the position of the song.
 
-### Classification- predict whether a sign will be in the top 30
+###7.2 Classification- predict whether a sign will be in the top 30
 
 #### Preprocessing
 
