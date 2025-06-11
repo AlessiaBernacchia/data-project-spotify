@@ -1014,18 +1014,18 @@ for (colname in names(numeric_data_before_no_genre)) {
 }
 ```
 
-Based on the QQ plots for the periods before and after 2015, none of the feature distributions appear to be normal. Therefore, to compare the two distributions, we should use the Wilcoxon test.
+Based on the QQ plots for the periods before and after 2010, none of the feature distributions appear to be normal. Therefore, to compare the two distributions, we should use the Wilcoxon test.
 
 #### Hypothesis Test
 ```{r}
-#Doing a wilcox test based on the loudness of the songs
+#Doing a wilcox test based on the track_duration of the songs
 wilcox.test(
   hypothesis_data_after$spotify_track_duration_min,
   hypothesis_data_before$spotify_track_duration_min,
   alternative = "two.sided"
 )
 
-#filtering the datasets with only the loudness feature
+#filtering the datasets with only the track_duration feature
 loudness_after <- hypothesis_data_after$spotify_track_duration_min
 loudness_before <- hypothesis_data_before$spotify_track_duration_min
 
@@ -1040,25 +1040,25 @@ The p-value from this test is very close to the acceptance of H1 but is just to 
 
 
 ```{r}
-#Doing a wilcox test based on the loudness of the songs
+#Doing a wilcox test based on the energy of the songs
 wilcox.test(
   hypothesis_data_after$energy,
   hypothesis_data_before$energy,
   alternative = "two.sided"
 )
 
-#filtering the datasets with only the loudness feature
-loudness_after <- hypothesis_data_after$energy
-loudness_before <- hypothesis_data_before$energy
+#filtering the datasets with only the energy feature
+energy_after <- hypothesis_data_after$energy
+energy_before <- hypothesis_data_before$energy
 
 
-plot(density(loudness_after), col = "blue", lwd = 2,
+plot(density(energy_after), col = "blue", lwd = 2,
      main = "Energy Density: After 2010 vs Before 2010", xlab = "energy")
-lines(density(loudness_before), col = "red", lwd = 2)
+lines(density(energy_before), col = "red", lwd = 2)
 
 legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
 ```
-As we can see from the two distributions, songs released after 2010 are almost the energy dense than the ones released before.
+As we can see from the two distributions, they are similar, but the results of the Wilcox test says otherwise, the p-value is less than 0.05, meaning that we need to reject the hypothesis test. In other words, even if the distribution seems the same, the energy of the songs after 2010 are not like the ones released before.
 
 
 ```{r}
@@ -1075,14 +1075,14 @@ loudness_before <- hypothesis_data_before$loudness
 
 
 plot(density(loudness_after), col = "blue", lwd = 2,
-     main = "Spotify track duration min Density: After 2010 vs Before 2010", xlab = "duration")
+     main = "Loudness Density: After 2010 vs Before 2010", xlab = "loudness")
 lines(density(loudness_before), col = "red", lwd = 2)
 
 legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
 ```
 
 
-As we can see from the two distributions, songs released after 2010 are louder than those released before. Why is that? This is due to a big movement in the early 90ntees that wanted to make songs louder because they are easier to listen to.
+From what we can see above, the two periods have different distributions, even without looking at the wilcox test, that the outcome of it is less than 0.05, ending up with rejecting the null hypothesis. In other words, the loudness of the songs after 2010 are not like the ones released before.
 
 
 ## Question 2 - As a manager, should I continue to invest in this song given its statistics? Will it remain popular over time?
