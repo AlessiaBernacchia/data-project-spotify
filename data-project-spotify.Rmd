@@ -1163,7 +1163,6 @@ task = 'regression'
 # models
 models <- list(
   rf = rand_forest(mtry = 5) %>% set_engine("randomForest") %>% set_mode(task),
-  #lm = linear_reg() %>% set_engine("lm") %>% set_mode(task),
   xgb = boost_tree(trees = 100, tree_depth = 10) %>% set_engine("xgboost") %>% set_mode(task),
   knn = nearest_neighbor(neighbors = 5) %>% set_engine("kknn") %>% set_mode(task)
 )
@@ -1190,7 +1189,7 @@ results_df %>%
 
 print(results_df)
 ```
-
+From the results obtained, we can observe that for the models is difficult to predict the exact position of a particular song in the billboard, with an rmse between 20-27%. Even with an error that high, the random forest keep performing better than the others two. With an error like this, if we would try to predict the position of a song, it will have an error of about +-20 places. This highlights the difficulty of the task.
 
 ```{r}
 # VIP plot list
@@ -1219,6 +1218,8 @@ if (length(vip_plots) == 2) {
   vip_plots[[1]]
 }
 ```
+
+From what we can see here for both models, the average, max and min position are the most important features for predicting the position of a song. The importance of features decrease drastically after the first three for the XGboost model, meaning that they are irrelevant for predicting the position of the song.
 
 ### Classification- predict whether a sign will be in the top 30
 
@@ -1276,6 +1277,17 @@ corrplot(cor_matrix, method = "color",
 
 #ggsave("4_regression_heatmap.png", width = 12, height = 16)
 ```
+<<<<<<< Updated upstream
+=======
+Overoall, we can notice that the strongly correlated features are most likely the ones regarding the position, which are: min position, max position, average position and number of week on chart. In contrast, the audio features and genre-reated variables show a low coorelation between each others, making them the ideal features to help random forest to learn even more.
+
+
+```{r}
+numeric_data_clss
+```
+
+
+>>>>>>> Stashed changes
 ```{r}
 hist(classification_data$top30)
 ```
@@ -1325,6 +1337,8 @@ plot_conf_matrix(cm_rF, title = "Confusion Matrix - Classification Random Forest
 ```{r}
 head(summary(cm_rF),4)
 ```
+From what we can see from the confusion matrix and the metrics, the model has an high accuracy, around 90% which is really good. Other than that, it has a really low amount of false negative, making it really good at not missing songs that are in the top 30. Lastly, the models have problems in recongnizing true negative values, in fact, almost 50% of the time it predict that a song is positive while in reality is negative.
+
 
 ```{r}
 roc_rF<-roc_curve(spotify_test_rf,
@@ -1332,11 +1346,9 @@ roc_rF<-roc_curve(spotify_test_rf,
           .pred_0,event_level = "first")
 roc_rF |> autoplot()
 ```
-
 ```{r}
 rf_wf_fit |> 
   extract_fit_engine() |> 
   vip()
 ```
-
-
+From what we can observe in the feature importance plot, the model predict mainly based on the average and minimimum position, followed by the other two positional features (maximum position and number of weeks in the billboard). The limitations of this model is the fact that discriminate new songs, like we say before, this classifier would be used by a "manager" for predicting if songs would stay popular or not. 
