@@ -1424,7 +1424,10 @@ corrplot(cor_matrix, method = "color",
 
 #ggsave("4_regression_heatmap.png", width = 12, height = 16)
 ```
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 Overoall, we can notice that the strongly correlated features are most likely the ones regarding the position, which are: min position, max position, average position and number of week on chart. In contrast, the audio features and genre-reated variables show a low coorelation between each others, making them the ideal features to help random forest to learn even more.
 
 
@@ -1496,4 +1499,22 @@ rf_wf_fit |>
   extract_fit_engine() |> 
   vip()
 ```
-From what we can observe in the feature importance plot, the model predict mainly based on the average and minimimum position, followed by the other two positional features (maximum position and number of weeks in the billboard). The limitations of this model is the fact that discriminate new songs, like we say before, this classifier would be used by a "manager" for predicting if songs would stay popular or not. 
+From what we can observe in the feature importance plot, the model predict mainly based on the average and minimimum position, followed by the other two positional features (maximum position and number of weeks in the billboard). The limitations of this model is the fact that discriminate new songs, like we say before, this classifier would be used by a "manager" for predicting if songs would stay popular or not.
+
+
+
+
+
+# Conclusion
+In conclusion we can't predict the level of a song with just using the audio feature, because with an RMSE of 16.8, the means predictions could deviate by +-16.8, which is too imprecise for practical use. Same problem with the classification problem, it's too much inaccurate to use it in real world application.
+
+On the other way, we can predict the popularity level of a song if we use both audio features and their recent performance statistics, not perfectly but with an acceptable margin of error.
+
+The songs' features changed over time, like loudness and energy, while just a few didn't change so much, like the track duration.
+
+We tried to develop some models, both for regression and classification, about predicting the position of a song based on the audio features and some positional history records. For the regression model, we end up with a RMSE of 20, making it impossible for real world usage, while the classification model, worked better than we expected, having an accuracy of 90% but with a 50% chanche to classify a song as in top30, while il reality is not.
+
+
+
+
+
