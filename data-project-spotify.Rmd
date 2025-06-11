@@ -454,7 +454,7 @@ ggplot(regression_data, aes(x = first_genre)) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
-As you can see a lot of the genres that are present in the dataset are not really used that much, so we have decided to take the first 15.
+As you can see a lot of the genres that are present in the dataset are not really used that much, so we have decided to take the first 15 in order of popularity.
 
 Scaling
 
@@ -556,7 +556,7 @@ ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
   coord_cartesian(xlim = c(min_val, max_val), ylim = c(min_val, max_val))
 
 ```
-As you can clearly state from the Regressions above, the model is not predicting well the final popularity of the song. All three of the model used in this task have a low performance. The lowest RMSE comes from the Random Forest regressor with a value of 16.8 and is quite high. We want to predict a value that goes from 0 to 100 and with an RMSE of almost 16.8 we are not precise enough. If the true value of the popularity is 50 that means that our model could predict a value that goes from 31.2 to 66.8 and this is not precise enough for us. Is there a way to improove the model performances reducing the RMSE?
+As you can clearly state from the Regressions above, the model is not predicting well the final popularity of the song. All three of the model used in this task have a low performance. The lowest RMSE comes from the Random Forest regressor with a value of 16.8 and is quite high. We want to predict a value that goes from 0 to 100 and with an RMSE of almost 16.8 we are not precise enough. If the true value of the popularity of one song is 50 that means that our model could predict a value that goes from 31.2 to 66.8 and this is not precise enough for us. Is there a way to improve the model performances reducing the RMSE?
 
 First let's try to understand wich features are the most imporant for our model.
 
@@ -589,11 +589,17 @@ if (length(vip_plots) == 2) {
   vip_plots[[1]]
 }
 ```
-The models have chosen the same features to characterize as the most important ones. We have Loudness in firs place and then the duration of the track in second place, after this common grounds the models use the same features but in a different order. 
+The models have identified the same set of features as the most important. Loudness consistently ranks first, followed by the duration of the track in second place. Beyond these common top features, the models prioritize the remaining variables in slightly different orders.
 
-One thing that we could try to do to improove the performances of our model is trying to bin the target popularity tor see if this process help the model.
+One potential strategy to improve our model's performance is to bin the target variable, popularity, and evaluate whether this transformation enhances predictive accuracy.
 
-We have decided to bin the popularity in 4 different features each of 25 points with the labels of low, medium, high, very high.
+We have chosen to divide the popularity scores into four bins, each spanning 25 points, and label them as follows:
+
+- **Low**
+- **Medium**
+- **High**
+- **Very High**
+
 
 ### 4.2 Classification- predict which level of popularity
 
@@ -655,7 +661,8 @@ ggplot(classification_data, aes(x = spotify_track_popularity)) +
        y = "Counter") +
   theme_minimal()
 ```
-We can see that the target values are not equally rerpresented, this is a problem for our modell because will have an arder time in predicting songs with very high popularity.
+We can see that the target values are not equally represented. This is a problem for our model, as it makes it more difficult to accurately predict songs with very high popularity. The imbalance in the target distribution may cause the model to be biased toward the more frequent categories, reducing its ability to generalize well on underrepresented classes.
+
 
 
 split
@@ -707,7 +714,7 @@ plot_conf_matrix(cm_rF, title = "Confusion Matrix - Classification Random Forest
 ```{r}
 head(summary(cm_rF),4)
 ```
-From this evaluation we can see that binning the target value and transforming this problem in a classification problem did not help much. An accuracy just above 53% percent is still a very low performance.
+From this evaluation we can see that binning the target value and transforming this task in a classification problem did not help much. An accuracy just above 53% percent is still a very low performance and not enough for us.
 
 
 ```{r}
@@ -715,9 +722,9 @@ rf_wf_fit |>
   extract_fit_engine() |> 
   vip()
 ```
-From the feature importance of the model above we can claearly state that the most important features are still the same as before.
+From the feature importance of the model above, we can clearly state that the most important features are still the same as before.
 
-I idea that came into our head while working at this project was that we are mostly interested in predicting the popularity of the new songs that get produced today, not the ones that were published or famous in the 1960s. Maybe if we select only the last 10 years of the dataset we will have an higher accuracy because the taste of the peoples hearing the music will have less changes. Afterall the music that was the mos poupular in the 60s is not the same one that we listen to today.
+An idea that came into our head while working on this project was that we are mostly interested in predicting the popularity of the new songs that get produced today, not the ones that were published or famous in the 1960s. Maybe if we select only the last 10 years of the dataset, we will have higher accuracy because the taste of the people listening to music will have changed less. After all, the music that was most popular in the 60s is not the same as the one we listen to today.
 
 > Is the music changed over time?
   
@@ -791,7 +798,7 @@ corrplot(cor_matrix, method = "color",
          #number.cex = 0.7, addCoef.col = "black",
          tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
 ```
-From this correlation matrix we can see that the features on wich we work are not much correlated with each other, We have only one strong correlation between energy and loudness but that should not be a problem for the models that we are going to use.
+From this correlation matrix we can see that the features on which we work are not much correlated with each other, We have only one strong correlation between energy and loudness but that should not be a problem for the models that we are going to use.
 
 ```{r small-model, cache=True}
 set.seed(45)
@@ -895,7 +902,11 @@ ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
   coord_cartesian(xlim = c(min_val, max_val), ylim = c(min_val, max_val))
 
 ```
-The new models trained on only the final section of the data we have are more precise than the general ones. This is a good news because it means that we are able to produce more precise prediction over the songs of the last 10ish years. Now the lowest RMSE is around 10 that for us is a good improovement. With this new model if we want to predict 50 as popularity for a particular song we will end up with values ranging from 40 to 60 that is a more acceptable result.
+The new models trained exclusively on songs released between 2010 and 2021 are more accurate than the general ones. This is encouraging, as it shows that we can make more reliable predictions for music from the past 10 years or so.
+
+With these new models, the lowest RMSE is now around 10 — a significant improvement compared to previous results. For example, if we aim to predict a popularity score of 50 for a given song, the model would  return a value between 40 and 60. This range is much more acceptable and useful for practical purposes.
+
+While the predictions are still not perfect, they are clearly better than before.
 
 features importance
 ```{r}
@@ -925,7 +936,7 @@ if (length(vip_plots) == 2) {
   vip_plots[[1]]
 }
 ```
-This new model uses the same features of the initial one so probably would be interesting to explore the behaviour of this data to see if there are patterns that we can recognize
+This new model uses the same features of the initial one so probably would be interesting to explore their behaviour of this data to see if there are patterns that we can recognize
 
 ```{r}
 loudness_summary <- full_data_clean %>%
@@ -945,7 +956,7 @@ ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
        x = "Year", y = "Average Loudness (dB)") +
   theme_minimal()
 ```
-Well for the loudness we can see that after 1990 the loudness inside song had a big rise, this is due to the fact that loud songs are easier to listen with headphones. But one thing that we can notice is that the loudness of the last years is much more different than the loudness before the 1990, this probably helped the model in deciding how to predict the final popularity of a song.
+Well for the loudness we can see that after 1990 the loudness inside song had a big rise, this is due to the fact that loud songs are easier to listen with headphones. But one thing that we can notice is that the loudness of the last years is much higher than the loudness before the 1990.
 
 ```{r}
 
@@ -968,7 +979,7 @@ ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
 
 ```
 
-From this graph we can see that the duration of a song between 2010 and 2021 is quite different from the ones before 2010. We can also notice that in recent history were first short, than they became longher and now are also decreasing in time, a really interesting pattern.
+From this graph we can see that the duration of a song between 2010 and 2021 is quite different from the ones before 2010. We can also notice that the duration started increasing strongly after 1960 peaking in the 1990s. However after the 2000s the duration started decreasing rapidly. This forms a really interesting pattern in the evolution of music over time.
 
 ```{r}
 
@@ -990,9 +1001,13 @@ ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
   theme_minimal()
 
 ```
-Also here we see that acousticness between 2010 and 2021 is much more different than the past years.
+Also here we see that acousticness between 2010 and 2021 is on average higher than in the past years.
 
-Overall we can see that since the characteristics of music in different years is changed in many ways and not by little, so it make sense to create different models for the different periods of time to approximate better the taste of the people living in a particular period. It would probably be interesting to do this reasoning by country.
+In conclusion, we can observe a significant change in various aspects of songs throughout this historical period. The second half of the 20th century was undoubtedly marked by the emergence of many distinct musical styles, and due to this great variety, it becomes very difficult to build a model that can accurately predict the popularity of a song across the entire timespan.  
+
+It makes much more sense to train smaller models on just a specific portion of this period if we aim to obtain more precise predictions.  
+
+It would also be interesting to apply this approach separately to different continents — or even individual countries — in order to more accurately capture the musical preferences of people living in those regions.
 
 ## 6. Have songs from the last ten years become louder than before? We chose to perform this hypothesis test on the loudness because we noticed it was the most important feature among all the audio features of the songs.
 
