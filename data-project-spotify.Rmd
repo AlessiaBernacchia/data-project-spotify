@@ -556,7 +556,7 @@ ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
   coord_cartesian(xlim = c(min_val, max_val), ylim = c(min_val, max_val))
 
 ```
-As you can clearly state from the Regressions above, the model is not predicting well the final popularity of the song. All three of the model used in this task have a low performance. The lowest RMSE comes from the Random Forest regressor with a value of 16.8 and is quite high. We want to predict a value that goes from 0 to 100 and with an RMSE of almost 16.8 we are not precise enough. If the true value of the popularity of one song is 50 that means that our model could predict a value that goes from 31.2 to 66.8 and this is not precise enough for us. Is there a way to improve the model performances reducing the RMSE?
+As you can clearly state from the Regressions above, the model is not predicting well the popularity of the song. All three of the model used in this task have a low performance. The lowest RMSE comes from the Random Forest regressor with a value of 16.8 and is quite high. If the true value of the popularity of one song is 50 that means that our model could predict a value that goes from 31.2 to 66.8 and this is not precise enough for us. Is there a way to improve the model performances reducing the RMSE?
 
 First let's try to understand wich features are the most imporant for our model.
 
