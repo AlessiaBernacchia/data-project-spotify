@@ -445,82 +445,6 @@ regression_data_encoded_scaled
 
 #### Regressions
 
-<!-- 1.  split the dataset -->
-
-<!-- ```{r} -->
-<!-- set.seed(45) -->
-<!-- split <- initial_split(head(regression_data_encoded,n_samples_to_consider), prop = 0.8) -->
-<!-- train_data <- training(split) -->
-<!-- test_data  <- testing(split) -->
-
-<!-- # resampling for cross validation -->
-<!-- cv_folds <- vfold_cv(train_data, v = 5) -->
-<!-- ``` -->
-
-<!-- 2.  define recipe, models and workflows -->
-
-<!-- ```{r} -->
-<!-- # recipe -->
-<!-- recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) |> -->
-<!--   step_dummy(all_nominal_predictors(), one_hot = TRUE) -->
-
-<!-- # models with tuning parameters -->
-<!-- task = 'regression' -->
-<!-- models <- list( -->
-<!--   rf = rand_forest(mtry = tune(), trees = 500) |> -->
-<!--     set_engine("randomForest") |> set_mode(task), -->
-
-<!--   xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) |> -->
-<!--     set_engine("xgboost") |> set_mode(task), -->
-
-<!--   knn = nearest_neighbor(neighbors = tune()) |> -->
-<!--     set_engine("kknn") |> set_mode(task) -->
-<!-- ) -->
-
-<!-- # workflows -->
-<!-- workflows_list <- purrr::imap(models, function(model, name) { -->
-<!--   workflow() |> add_model(model) |> add_recipe(recipe_spec) -->
-<!-- }) -->
-<!-- ``` -->
-
-<!-- 3.  tuning -->
-
-<!-- ```{r} -->
-<!-- # tune_race_anova -->
-<!-- tuned_models <- purrr::imap(workflows_list, function(wf, name) { -->
-<!--   tune_race_anova( -->
-<!--     wf, -->
-<!--     resamples = cv_folds, -->
-<!--     grid = 5, -->
-<!--     metrics = metric_set(rmse), -->
-<!--     control = control_race(verbose_elim = TRUE) -->
-<!--   )}) -->
-
-<!-- # extract best values -->
-<!-- best_models <- purrr::map(tuned_models, ~ select_best(.x)) -->
-<!-- ``` -->
-
-<!-- 4.  finalize and fits the models to the training set -->
-
-<!-- ```{r} -->
-<!-- final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) |> fit(data = train_data)) -->
-<!-- ``` -->
-
-<!-- 5.  evaluation on the test set -->
-
-<!-- ```{r} -->
-<!-- results <- purrr::map(final_models, ~ { -->
-<!--   predict(.x, test_data) |> -->
-<!--     bind_cols(test_data) |> -->
-<!--     metrics(truth = spotify_track_popularity, estimate = .pred)}) -->
-
-<!-- # summary RMSE -->
-<!-- results_df <- bind_rows(results, .id = "model") |> -->
-<!--   filter(.metric == "rmse") |> arrange(.estimate) -->
-
-<!-- print(results_df) -->
-<!-- ``` -->
-
 ```{r big-model, cache=TRUE}
 library(tidymodels)
 library(furrr)
@@ -593,6 +517,9 @@ all_predictions <- purrr::imap(final_models, ~ {
 ```
 
 ```{r}
+min_val <- min(c(all_predictions$spotify_track_popularity, all_predictions$.pred))
+max_val <- max(c(all_predictions$spotify_track_popularity, all_predictions$.pred))
+
 ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
   geom_point(alpha = 0.4, color = "steelblue") +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
@@ -602,8 +529,13 @@ ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
     x = "Real Values (spotify_track_popularity)",
     y = "Predictions"
   ) +
-  theme_minimal()
+  theme_minimal() +
+  coord_cartesian(xlim = c(min_val, max_val), ylim = c(min_val, max_val))
+
 ```
+As you can clearly state from the Regressions above, the model is not predicting well the final popularity of the song. All three of the model used in this task have a low performance. The lowest RMSE comes from the Random Forest regressor with a value of 16.8 and is quite high. We want to predict a value that goes from 0 to 100 and with an RMSE of almost 16.8 we are not precise enough. If the true value of the popularity is 50 that means that our model could predict a value that goes from 31.2 to 66.8 and this is not precise enough for us. Is there a way to improove the model performances reducing the RMSE?
+
+First let's try to understand wich features are the most imporant for our model.
 
 features importance
 
@@ -634,6 +566,11 @@ if (length(vip_plots) == 2) {
   vip_plots[[1]]
 }
 ```
+The models have chosen the same features to characterize as the most important ones. We have Loudness in firs place and then the duration of the track in second place, after this common grounds the models use the same features but in a different order. 
+
+One thing that we could try to do to improove the performances of our model is trying to bin the target popularity tor see if this process help the model.
+
+We have decided to bin the popularity in 4 different features each of 25 points with the labels of low, medium, high, very high.
 
 ### 4.2 Classification- predict which level of popularity
 
@@ -700,6 +637,8 @@ ggplot(classification_data, aes(x = spotify_track_popularity)) +
        y = "Counter") +
   theme_minimal()
 ```
+We can see that the target values are not equally rerpresented, this is a problem for our modell because will have an arder time in predicting songs with very high popularity.
+
 
 split
 
@@ -750,6 +689,8 @@ plot_conf_matrix(cm_rF, title = "Confusion Matrix - Classification Random Forest
 ```{r}
 head(summary(cm_rF),4)
 ```
+From this evaluation we can see that binning the target value and transforming this problem in a classification problem did not help much. An accuracy just above 53% percent is still a very low performance.
+
 
 ```{r}
 # select(spotify_test_rf, starts_with(".pred_"))
@@ -758,11 +699,13 @@ rf_wf_fit |>
   extract_fit_engine() |> 
   vip()
 ```
+From the feature importance of the model above we can claearly state that the most important features are still the same as before.
 
-<<<<<<<<<<<TODO>>>>>>>>>>>>>
+I idea that came into our head while working at this project was that we are mostly interested in predicting the popularity of the new songs that get produced today, not the ones that were published or famous in the 1960s. Maybe if we select only the last 10 years of the dataset we will have an higher accuracy because the taste of the peoples hearing the music will have less changes. Afterall the music that was the mos poupular in the 60s is not the same one that we listen to today.
+
 > Is the music changed over time?
   
-## 5. Taking only the last 25 years of data, <<<<<<<<the model will improve / possibile stimare meglio>>>>>>>>>>>>>?
+## 5. Taking only the last 10 years of data, <<<<<<<<the model swill improve / possibile stimare meglio>>>>>>>>>>>>>?
 ### 5.1 Preprocessing
   Remove unrelevant features
 ```{r}
@@ -810,89 +753,16 @@ regression_data_after <- data_filtered_after_encoded |> select(-c(performer, son
 ```
 
 Scale the features
-<<<<<<<<<<<<<<<<<TODO: vedere se mettere uno unique per ogni anno --> problema riassegnare target>>>>>>>>>>>>>>>>>>>>
 ```{r}
 #regression_data_after <- robustHD::standardize(regression_data_after |> select(-c( year, spotify_track_popularity)))
 regression_data_after$spotify_track_popularity <- data_filtered_after_encoded$spotify_track_popularity
 regression_data_after <- unique(regression_data_after)
 
 #regression_data_after$year <- data_filtered_after_encoded$ye
-regression_data
+head(regression_data)
 ```
 
 #### Regressions
-<!-- 1. split the dataset -->
-<!-- ```{r} -->
-<!-- registerDoParallel(cores = parallel::detectCores() - 1) -->
-
-<!-- set.seed(45) -->
-<!-- split <- initial_split(head(regression_data_after, n_samples_to_consider), prop = 0.8) -->
-<!-- train_data <- training(split) -->
-<!-- test_data  <- testing(split) -->
-
-<!-- # resampling for cross validation -->
-<!-- cv_folds <- vfold_cv(train_data, v = 5) -->
-<!-- ``` -->
-
-<!-- 2. define recipe, models and workflows -->
-<!-- ```{r} -->
-<!-- # recipe -->
-<!-- recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) |> -->
-<!--   step_dummy(all_nominal_predictors(), one_hot = TRUE) -->
-
-<!-- # models with tuning parameters -->
-<!-- task = 'regression' -->
-<!-- models <- list( -->
-<!--   rf = rand_forest(mtry = tune(), trees = 500) |> -->
-<!--     set_engine("randomForest") |> set_mode(task), -->
-
-<!--   xgb = boost_tree(trees = 1000, tree_depth = tune(), learn_rate = tune()) |> -->
-<!--     set_engine("xgboost") |> set_mode(task), -->
-
-<!--   knn = nearest_neighbor(neighbors = tune()) |> -->
-<!--     set_engine("kknn") |> set_mode(task) -->
-<!-- ) -->
-
-<!-- # workflows -->
-<!-- workflows_list <- purrr::imap(models, function(model, name) { -->
-<!--   workflow() |> add_model(model) |> add_recipe(recipe_spec) -->
-<!-- }) -->
-<!-- ``` -->
-
-<!-- 3. tuning -->
-<!-- ```{r} -->
-<!-- # tune_race_anova -->
-<!-- tuned_models <- purrr::imap(workflows_list, function(wf, name) { -->
-<!--   tune_race_anova( -->
-<!--     wf, -->
-<!--     resamples = cv_folds, -->
-<!--     grid = 5, -->
-<!--     metrics = metric_set(rmse), -->
-<!--     control = control_race(verbose_elim = TRUE) -->
-<!--   )}) -->
-
-<!-- # extract best values -->
-<!-- best_models <- purrr::map(tuned_models, ~ select_best(.x)) -->
-<!-- ``` -->
-
-<!-- 4. finalize and fits the models to the training set -->
-<!-- ```{r} -->
-<!-- final_models <- purrr::map2(workflows_list, best_models, ~ finalize_workflow(.x, .y) |> fit(data = train_data)) -->
-<!-- ``` -->
-
-<!-- 5. evaluation on the test set -->
-<!-- ```{r} -->
-<!-- results <- purrr::map(final_models, ~ { -->
-<!--   predict(.x, test_data) |> -->
-<!--     bind_cols(test_data) |> -->
-<!--     metrics(truth = spotify_track_popularity, estimate = .pred)}) -->
-
-<!-- # summary RMSE -->
-<!-- results_df <- bind_rows(results, .id = "model") |> -->
-<!--   filter(.metric == "rmse") |> arrange(.estimate) -->
-
-<!-- print(results_df) -->
-<!-- ``` -->
 
 ```{r}
 # compute correlation matrix
@@ -904,8 +774,7 @@ corrplot(cor_matrix, method = "color",
          #number.cex = 0.7, addCoef.col = "black",
          tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
 ```
-
-
+From this correlation matrix we can see that the features on wich we work are not much correlated with each other, We have only one strong correlation between energy and loudness but that should not be a problem for the models that we are going to use.
 
 ```{r small-model, cache=True}
 set.seed(45)
@@ -968,8 +837,18 @@ print(results_df)
 # (opzionale) chiudi il cluster
 plan(sequential)
 ```
+
 ```{r}
-regression_data_after
+# compute correlation matrix
+cor_matrix <- cor(regression_data_after, use = "complete.obs")
+
+# correlation heatmap
+corrplot(cor_matrix, method = "color", 
+         type = "upper", tl.col = "black", 
+         #number.cex = 0.7, addCoef.col = "black",
+         tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
+
+#ggsave("4_regression_heatmap.png", width = 12, height = 16)
 ```
 
 
@@ -983,6 +862,9 @@ all_predictions <- purrr::imap(final_models, ~ {
 ```
 
 ```{r}
+min_val <- min(c(all_predictions$spotify_track_popularity, all_predictions$.pred))
+max_val <- max(c(all_predictions$spotify_track_popularity, all_predictions$.pred))
+
 ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
   geom_point(alpha = 0.4, color = "steelblue") +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
@@ -992,8 +874,11 @@ ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
     x = "Real Values (spotify_track_popularity)",
     y = "Predictions"
   ) +
-  theme_minimal()
+  theme_minimal() +
+  coord_cartesian(xlim = c(min_val, max_val), ylim = c(min_val, max_val))
+
 ```
+The new models trained on only the final section of the data we have are more precise than the general ones. This is a good news because it means that we are able to produce more precise prediction over the songs of the last 10ish years. Now the lowest RMSE is around 10 that for us is a good improovement. With this new model if we want to predict 50 as popularity for a particular song we will end up with values ranging from 40 to 60 that is a more acceptable result.
 
 features importance
 ```{r}
@@ -1023,25 +908,6 @@ if (length(vip_plots) == 2) {
   vip_plots[[1]]
 }
 ```
-```{r}
-
-```
-
-QQ plot
-```{r}
-numeric_data <- regression_data |> select(where(is.numeric))
-par(mfrow = c(2,2))  # cambia a seconda del numero di variabili
-
-for (colname in names(numeric_data)) {
-  qqnorm(numeric_data[[colname]], main = paste("QQ Plot -", colname))
-  qqline(numeric_data[[colname]])
-}
-```
-
-> Sono questi due periodi diversi?? Guardiamo i primi due elementi
-
-```{r}
-```
 
 
 ```{r}
@@ -1049,7 +915,7 @@ loudness_summary <- full_data_clean %>%
   group_by(year) %>%
   summarise(
     mean_loudness = mean(loudness, na.rm = TRUE),
-    sd_loudness = sd(loudness, na.rm = TRUE),
+    sd_loudness = 3 * sd(loudness, na.rm = TRUE),
     n = n(),
     se = sd_loudness / sqrt(n)  # standard error
   )
@@ -1070,7 +936,7 @@ loudness_summary <- full_data_clean %>%
   group_by(year) %>%
   summarise(
     mean_loudness = mean(spotify_track_duration_ms, na.rm = TRUE),
-    sd_loudness = sd(spotify_track_duration_ms, na.rm = TRUE),
+    sd_loudness = 3 * sd(spotify_track_duration_ms, na.rm = TRUE),
     n = n(),
     se = sd_loudness / sqrt(n)  # standard error
   )
@@ -1089,8 +955,8 @@ ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
 loudness_summary <- full_data_clean %>%
   group_by(year) %>%
   summarise(
-    mean_loudness = mean(acousticness, na.rm = TRUE),
-    sd_loudness = sd(acousticness, na.rm = TRUE),
+    mean_loudness = mean(energy, na.rm = TRUE),
+    sd_loudness = 3 * sd(energy, na.rm = TRUE),
     n = n(),
     se = sd_loudness / sqrt(n)  # standard error
   )
@@ -1156,7 +1022,7 @@ Based on the QQ plots for the periods before and after 2015, none of the feature
 wilcox.test(
   hypothesis_data_after$spotify_track_duration_min,
   hypothesis_data_before$spotify_track_duration_min,
-  alternative = "less"
+  alternative = "two.sided"
 )
 
 #filtering the datasets with only the loudness feature
@@ -1170,8 +1036,53 @@ lines(density(loudness_before), col = "red", lwd = 2)
 
 legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
 ```
+The p-value from this test is very close to the acceptance of H1 but is just to high for us. This could be due to an unlucky case. Anyway we can see that the duration of the tracks after 2010 are more focused on a single mean just under 4 minutes, while the ones before are a bit more spread out between 2 and 4 minutes. Anyway we dont see much difference in the two distributions.
 
-As we can see from the two distributions, songs released after 2015 are louder than those released before. Why is that? This could be due to the evolution of music over the years—listeners' tastes have changed, and artists have explored new styles, adapting their sound to the cultural and historical context.
+
+```{r}
+#Doing a wilcox test based on the loudness of the songs
+wilcox.test(
+  hypothesis_data_after$energy,
+  hypothesis_data_before$energy,
+  alternative = "two.sided"
+)
+
+#filtering the datasets with only the loudness feature
+loudness_after <- hypothesis_data_after$energy
+loudness_before <- hypothesis_data_before$energy
+
+
+plot(density(loudness_after), col = "blue", lwd = 2,
+     main = "Energy Density: After 2010 vs Before 2010", xlab = "energy")
+lines(density(loudness_before), col = "red", lwd = 2)
+
+legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
+```
+As we can see from the two distributions, songs released after 2010 are almost the energy dense than the ones released before.
+
+
+```{r}
+#Doing a wilcox test based on the loudness of the songs
+wilcox.test(
+  hypothesis_data_after$loudness,
+  hypothesis_data_before$loudness,
+  alternative = "two.sided"
+)
+
+#filtering the datasets with only the loudness feature
+loudness_after <- hypothesis_data_after$loudness
+loudness_before <- hypothesis_data_before$loudness
+
+
+plot(density(loudness_after), col = "blue", lwd = 2,
+     main = "Spotify track duration min Density: After 2010 vs Before 2010", xlab = "duration")
+lines(density(loudness_before), col = "red", lwd = 2)
+
+legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
+```
+
+
+As we can see from the two distributions, songs released after 2010 are louder than those released before. Why is that? This is due to a big movement in the early 90ntees that wanted to make songs louder because they are easier to listen to.
 
 
 ## Question 2 - As a manager, should I continue to invest in this song given its statistics? Will it remain popular over time?
@@ -1243,41 +1154,6 @@ results_df %>%
 print(results_df)
 ```
 
-```{r}
-results <- list()
-
-for (model_name in names(fitted_models)) {
-  model <- models[[model_name]]
-  
-  wf <- workflow() %>%
-    add_model(model) %>%
-    add_recipe(recipe_spec)
-  
-  fit_model <- fit(wf, data = train_data)
-  
-  preds <- predict(fit_model, test_data) %>%
-    bind_cols(test_data) %>%
-    mutate(model = model_name)
-  
-  results[[model_name]] <- preds
-}
-
-all_predictions <- bind_rows(results)
-
-```
-
-```{r}
-ggplot(all_predictions, aes(x = final_position, y = .pred)) +
-  geom_point(alpha = 0.4, color = "steelblue") +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
-  facet_wrap(~model, scales = "free") +
-  labs(
-    title = "Predictions vs Real Values",
-    x = "Real Values (spotify_track_popularity)",
-    y = "Predictions"
-  ) +
-  theme_minimal()
-```
 
 ```{r}
 # VIP plot list
@@ -1347,20 +1223,27 @@ print(head(classification_data,5))
 ```
 
 ```{r}
+
 # select only numerical data
-numeric_data_clss <- classification_data |>
+numeric_data_clss <- numeric_data_clss |>
   select(where(is.numeric))
 
-# correlation matrix
+# compute correlation matrix
 cor_matrix <- cor(numeric_data_clss, use = "complete.obs")
 
-ggcorrplot(cor_matrix, 
-           method = "square",     # or "circle"
-           type = "lower",        # only lower triangle        
-           colors = c("red", "white", "blue"),
-           title = "Correlation Matrix",
-           ggtheme = ggplot2::theme_minimal())
+# correlation heatmap
+corrplot(cor_matrix, method = "color", 
+         type = "upper", tl.col = "black", 
+         #number.cex = 0.7, addCoef.col = "black",
+         tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
+
+#ggsave("4_regression_heatmap.png", width = 12, height = 16)
 ```
+
+```{r}
+numeric_data_clss
+```
+
 
 ```{r}
 hist(classification_data$top30)
