@@ -663,8 +663,6 @@ ggplot(classification_data, aes(x = spotify_track_popularity)) +
 ```
 We can see that the target values are not equally represented. This is a problem for our model, as it makes it more difficult to accurately predict songs with very high popularity. The imbalance in the target distribution may cause the model to be biased toward the more frequent categories, reducing its ability to generalize well on underrepresented classes.
 
-
-
 split
 
 ```{r}
@@ -728,7 +726,7 @@ An idea that came into our head while working on this project was that we are mo
 
 > Is the music changed over time?
   
-## 5. Taking only the last 10 years of data, <<<<<<<<the model swill improve / possibile stimare meglio>>>>>>>>>>>>>?
+## 5. Taking only the last 10 years of data, 
 ### 5.1 Preprocessing
   Remove unrelevant features
 ```{r}
@@ -1120,6 +1118,9 @@ legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red
 
 
 From what we can see above, the two periods have different distributions, even without looking at the wilcox test, that the outcome of it is less than 0.05, ending up with rejecting the null hypothesis. In other words, the loudness of the songs after 2010 are not like the ones released before.
+
+##Future Improovements
+After all this considerations we can say that there are many aspects that we have not considered. The Billboard dataset is much more suitable for timeseries analysis but we still do not have the capabilities to do that kind of evaluations. It would be very interesting to try to predict the position of a song in the next future based on his past. Anyway one thing that surely could be added to the dataset used for this project is the year of production of the different songs, this could help us in creating a model that maybe fitted the general period instead of just one snaphsot. This way the model would have an helpful reference on which different "styles" or genres were popular in a particular period.
 
 
 ## Question 2 - As a manager, should I continue to invest in this song given its statistics? Will it remain popular over time?
