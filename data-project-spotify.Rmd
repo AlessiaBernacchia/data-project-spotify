@@ -428,10 +428,33 @@ print(head(regression_data,5))
 One hot encoding of the 15 most frequent genre
 
 ```{r}
+regression_data
+```
+
+
+```{r}
 regression_data <- extract_first_genre(regression_data)
 regression_data_encoded <- process_and_encode_genre(regression_data, top_n = 15)
 set.seed(45)
 ```
+
+```{r}
+regression_data$first_genre <- sapply(regression_data$first_genre, function(x) {
+  # Rimuove i caratteri inutili
+  cleaned <- gsub("\\[|\\]|'", "", x)
+  # Divide in base alla virgola
+  strsplit(cleaned, ",\\s*")[[1]][1]
+})
+
+ggplot(regression_data, aes(x = first_genre)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of the first genre",
+       x = "Genre",
+       y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+As you can see a lot of the genres that are present in the dataset are not really used that much, so we have decided to take the first 15.
 
 Scaling
 
@@ -600,11 +623,6 @@ classification_data <- process_and_encode_genre(classification_data, top_n = 15)
 ```
 
 ```{r}
-#print number of NaN for each column
-#count_na_per_column_df(classification_data)
-```
-
-```{r}
 print(head(classification_data,5))
 ```
 
@@ -693,8 +711,6 @@ From this evaluation we can see that binning the target value and transforming t
 
 
 ```{r}
-# select(spotify_test_rf, starts_with(".pred_"))
-
 rf_wf_fit |> 
   extract_fit_engine() |> 
   vip()
@@ -743,13 +759,14 @@ data_filtered_before_encoded <- unique(data_filtered_before_encoded)
 ```
 
 ```{r}
-data_filtered_after_encoded
+head(data_filtered_after_encoded,5)
 ```
 
-### 5.2 Regression after 2000
+### 5.2 Regression after 2010
 #### Preprocessing
 ```{r}
 regression_data_after <- data_filtered_after_encoded |> select(-c(performer, song_id))
+regression_data_after
 ```
 
 Scale the features
@@ -908,7 +925,7 @@ if (length(vip_plots) == 2) {
   vip_plots[[1]]
 }
 ```
-
+This new model uses the same features of the initial one so probably would be interesting to explore the behaviour of this data to see if there are patterns that we can recognize
 
 ```{r}
 loudness_summary <- full_data_clean %>%
@@ -928,7 +945,7 @@ ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
        x = "Year", y = "Average Loudness (dB)") +
   theme_minimal()
 ```
-
+Well for the loudness we can see that after 1990 the loudness inside song had a big rise, this is due to the fact that loud songs are easier to listen with headphones. But one thing that we can notice is that the loudness of the last years is much more different than the loudness before the 1990, this probably helped the model in deciding how to predict the final popularity of a song.
 
 ```{r}
 
@@ -950,6 +967,9 @@ ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
   theme_minimal()
 
 ```
+
+From this graph we can see that the duration of a song between 2010 and 2021 is quite different from the ones before 2010. We can also notice that in recent history were first short, than they became longher and now are also decreasing in time, a really interesting pattern.
+
 ```{r}
 
 loudness_summary <- full_data_clean %>%
@@ -970,7 +990,9 @@ ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
   theme_minimal()
 
 ```
+Also here we see that acousticness between 2010 and 2021 is much more different than the past years.
 
+Overall we can see that since the characteristics of music in different years is changed in many ways and not by little, so it make sense to create different models for the different periods of time to approximate better the taste of the people living in a particular period. It would probably be interesting to do this reasoning by country.
 
 ## 6. Have songs from the last ten years become louder than before? We chose to perform this hypothesis test on the loudness because we noticed it was the most important feature among all the audio features of the songs.
 
@@ -1239,12 +1261,6 @@ corrplot(cor_matrix, method = "color",
 
 #ggsave("4_regression_heatmap.png", width = 12, height = 16)
 ```
-
-```{r}
-numeric_data_clss
-```
-
-
 ```{r}
 hist(classification_data$top30)
 ```
