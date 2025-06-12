@@ -367,11 +367,7 @@ for (colname in names(numeric_data)) {
 }
 ```
 QQ-plots are used to assess whether a variable follows a normal distribution by comparing observed and theoretical quantiles.
-From the plots, it is evident that none of the features are `perfectly normally distributed`. However, some variables such as `week_position`, `previous_week_position`, `peak_position`, `danceability` `energy` show a fairly linear pattern in the central part, suggesting an approximately normal distribution.
-
-Other features (e.g., `acousticness`, `instrumentalness`, `speechiness`, `liveness`) exhibit strong deviations, indicating skewness or the presence of outliers.
-
-
+From the plots, it is evident that none of the features are `perfectly normally distributed`.
 
 
 Distribution of categorical data
@@ -704,7 +700,7 @@ ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
 ```
 As you can clearly state from the Regressions above, the model is not predicting well the popularity of the song. All three of the model used in this task have a low performance. The lowest RMSE comes from the Random Forest regressor with a value of 16.8 and is quite high. If the true value of the popularity of one song is 50 that means that our model could predict a value that goes from 31.2 to 66.8 and this is not precise enough for us. Is there a way to improve the model performances reducing the RMSE?
 
-First let's try to understand wich features are the most imporant for our model.
+First let's try to understand which features are the most important for our model.
 
 features importance
 
@@ -1123,7 +1119,7 @@ ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
 
 ```
 
-From this graph we can see that the duration of a song between 2010 and 2021 is quite different from the ones before 2010. We can also notice that the duration started increasing strongly after 1960 peaking in the 1990s. However after the 2000s the duration started decreasing rapidly. This forms a really interesting pattern in the evolution of music over time.
+From this graph we can see that the duration of a song between 2010 and 2021 is quite different from the ones before 2010. We can also notice that the duration started increasing strongly after 1960 peaking in the 1990s. However after the 2000s the duration started decreasing rapidly. This forms a really interesting pattern in the evolution of music duration over time.
 
 ```{r}
 
@@ -1195,7 +1191,7 @@ for (colname in names(numeric_data_before_no_genre)) {
 }
 ```
 
-Based on the QQ plots for the periods before and after 2010, none of the feature distributions appear to be normal. Therefore, to compare the two distributions, we should use the Wilcoxon test.
+Based on the QQ plots for the periods before and after 2010, none of the feature distributions appear to be normal. Therefore, to compare the two distributions, we should use the Wilcox test.
 
 #### Hypothesis Test
 ```{r}
@@ -1217,7 +1213,7 @@ lines(density(loudness_before), col = "red", lwd = 2)
 
 legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
 ```
-The p-value from this test is very close to the acceptance of H1 but is just to high for us. This could be due to an unlucky case. Anyway we can see that the duration of the tracks after 2010 are more focused on a single mean just under 4 minutes, while the ones before are a bit more spread out between 2 and 4 minutes. Anyway we dont see much difference in the two distributions.
+The p-value from this test is very close to the acceptance of H1 but is just to high for us. This could be due to an unlucky case. Anyway we can see that the duration of the tracks after 2010 are more focused on a single mean just under 4 minutes, while the ones before are a bit more spread out between 2 and 4 minutes. Anyway we do not see much difference in the two distributions.
 
 
 ```{r}
@@ -1261,12 +1257,10 @@ lines(density(loudness_before), col = "red", lwd = 2)
 
 legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
 ```
-
-
 From what we can see above, the two periods have different distributions, even without looking at the wilcox test, that the outcome of it is less than 0.05, ending up with rejecting the null hypothesis. In other words, the loudness of the songs after 2010 are not like the ones released before.
 
 ##Future Improovements
-After all this considerations we can say that there are many aspects that we have not considered. The Billboard dataset is much more suitable for timeseries analysis but we still do not have the capabilities to do that kind of evaluations. It would be very interesting to try to predict the position of a song in the next future based on his past. Anyway one thing that surely could be added to the dataset used for this project is the year of production of the different songs, this could help us in creating a model that maybe fitted the general period instead of just one snaphsot. This way the model would have an helpful reference on which different "styles" or genres were popular in a particular period.
+After all this considerations we can say that there are many aspects that we have not considered. The Billboard dataset is much more suitable for timeseries analysis but we still do not have the capabilities to do that kind of evaluations. It would be very interesting to try to predict the position of a song in the next future based on his past. Anyway one thing that surely could be added to the dataset used for this project is the year of production of the different songs, this could help us in creating a model that maybe fitted the general period instead of just one snapshot. This way the model would have an helpful reference on which different "styles" or genres were popular in a particular period.
 
 
 ##7. Question 2 - As a manager, should I continue to invest in this song given its statistics? Will it remain popular over time?
@@ -1275,7 +1269,7 @@ After all this considerations we can say that there are many aspects that we hav
 
 #### Preprocessing
 
-Remove unrelevant features
+Remove not relevant features
 
 ```{r}
 regression_data <- full_data_aggregate %>% select(-c(song_id))
@@ -1426,9 +1420,13 @@ corrplot(cor_matrix, method = "color",
 ```
 <<<<<<< Updated upstream
 
+<<<<<<< HEAD
+Overall, we can notice that the strongly correlated features are most likely the ones regarding the position, which are: min position, max position, average position and number of week on chart. In contrast, the audio features and genre-related variables show a low correlation between each others, making them the ideal features to help random forest to learn even more.
+=======
 =======
 >>>>>>> Stashed changes
 Overoall, we can notice that the strongly correlated features are most likely the ones regarding the position, which are: min position, max position, average position and number of week on chart. In contrast, the audio features and genre-reated variables show a low coorelation between each others, making them the ideal features to help random forest to learn even more.
+>>>>>>> dce4007c2a94f6b019f22d1f01eedf9d331b08b0
 
 
 ```{r}
