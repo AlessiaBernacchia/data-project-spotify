@@ -938,7 +938,7 @@ corrplot(cor_matrix, method = "color",
          #number.cex = 0.7, addCoef.col = "black",
          tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
 ```
-From this correlation matrix we can see that the features on which we work are not much correlated with each other, We have only one strong correlation between energy and loudness but that should not be a problem for the models that we are going to use.
+From this correlation matrix we can see that the features on which we work are not much correlated with each other. We have only one strong correlation between energy and loudness but that should not be a problem for the models that we are going to use.
 
 ```{r small-model, cache=True}
 set.seed(45)
@@ -1260,7 +1260,10 @@ legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red
 From what we can see above, the two periods have different distributions, even without looking at the wilcox test, that the outcome of it is less than 0.05, ending up with rejecting the null hypothesis. In other words, the loudness of the songs after 2010 are not like the ones released before.
 
 ##Future Improovements
-After all this considerations we can say that there are many aspects that we have not considered. The Billboard dataset is much more suitable for timeseries analysis but we still do not have the capabilities to do that kind of evaluations. It would be very interesting to try to predict the position of a song in the next future based on his past. Anyway one thing that surely could be added to the dataset used for this project is the year of production of the different songs, this could help us in creating a model that maybe fitted the general period instead of just one snapshot. This way the model would have an helpful reference on which different "styles" or genres were popular in a particular period.
+After all this considerations we can say that there are many aspects that we have not considered. 
+- The Billboard dataset is much more suitable for timeseries analysis but we still do not have the capabilities to do that kind of evaluations.
+- It would be very interesting to try to predict the position of a song in the next future based on his past.
+- Anyway one thing that surely could be added to the dataset used for this project is the year of production of the different songs, this could help us in creating a model that maybe fitted the general period instead of just one snapshot. This way the model would have an helpful reference on which different "styles" or genres were popular in a particular period.
 
 
 ##7. Question 2 - As a manager, should I continue to invest in this song given its statistics? Will it remain popular over time?
@@ -1418,15 +1421,8 @@ corrplot(cor_matrix, method = "color",
 
 #ggsave("4_regression_heatmap.png", width = 12, height = 16)
 ```
-<<<<<<< Updated upstream
 
-<<<<<<< HEAD
 Overall, we can notice that the strongly correlated features are most likely the ones regarding the position, which are: min position, max position, average position and number of week on chart. In contrast, the audio features and genre-related variables show a low correlation between each others, making them the ideal features to help random forest to learn even more.
-=======
-=======
->>>>>>> Stashed changes
-Overoall, we can notice that the strongly correlated features are most likely the ones regarding the position, which are: min position, max position, average position and number of week on chart. In contrast, the audio features and genre-reated variables show a low coorelation between each others, making them the ideal features to help random forest to learn even more.
->>>>>>> dce4007c2a94f6b019f22d1f01eedf9d331b08b0
 
 
 ```{r}
