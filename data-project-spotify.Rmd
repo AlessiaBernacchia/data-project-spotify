@@ -1,0 +1,1514 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Spotify Project
+
+Understanding what makes a song popular has always been a topic of interest for artists, producers, and researchers. With the increasing availability of music data from platforms like Spotify and Billboard, we now have the opportunity to analyze musical trends over time using quantitative methods.
+
+In this project, we aim to investigate whether it is possible to predict a song’s popularity based on its audio features. We begin with a broad historical analysis spanning from 1956 to today, then narrow our focus to the last 25 years, a period we believe better reflects modern listening habits and production styles.
+
+Through data preprocessing, feature engineering, and statistical analysis, we build and evaluate models to forecast not only immediate success but also a song’s long-term presence in the charts. Our goal is to better understand the relationship between music characteristics and commercial success, and to explore how this relationship has evolved over time.
+
+**Abstract**: This project explores the evolution of music from 1956 to the present, with a focus on predicting song popularity based on audio features. After an initial global analysis, we restrict our attention to the last 25 years to better reflect contemporary musical trends and production standards. Using statistical analysis and machine learning models, we assess the relationship between audio characteristics and a song's chart success. We also conduct hypothesis testing to evaluate how changes in music over time impact our findings. Finally, we propose two models aimed at predicting not only a song's immediate popularity, but also its long-term staying power in the charts.
+
+link to the **dataset**: [jonhthgeek-DataSetSpotify](https://github.com/rfordatascience/tidytuesday/blob/main/data/2021/2021-09-14/readme.md)
+
+**Authors**: [Bernacchia Alessia](https://github.com/AlessiaBernacchia), [Pioda Tommaso](https://github.com/Thetommigun432), [Villani Giacomo](https://github.com/DownToTheGround)
+
+```{r}
+# samples for regression
+n_samples_to_consider = 100
+```
+
+
+```{r}
+library(vip)
+library(readr)
+library(dplyr)
+library(tidymodels)
+library(ggplot2)
+library(rsample)
+library(tidyr)
+library(themis)
+library(stringr)
+library(purrr)
+library(caret)
+library(kknn)
+
+#install.packages("xgboost")
+library(parsnip)
+library(randomForest)
+library(kknn)
+library(xgboost)
+library(finetune)
+library(doParallel)
+library(robustHD)
+library(parsnip)
+
+# for exploration
+library(corrplot)
+library(ggcorrplot)
+
+# for classification
+library(pROC)
+```
+In this section we collected all the functions used among the document:
+*Functions*:
+
+```{r}
+# count NaN for each column
+count_na_per_column <- function(data) {
+  sapply(data, function(col) sum(is.na(col)))}
+
+count_na_per_column_df <- function(data) {
+  na_counts <- sapply(data, function(col) sum(is.na(col)))
+  na_counts_df <- data.frame(
+    feature = names(na_counts),
+    na_count = na_counts
+  )
+  na_counts_df %>% arrange(desc(na_count))
+}
+
+# extract first genre for the spotify genre
+extract_first_genre <- function(df, genre_column = "spotify_genre") {
+  # check if column exists
+  if (!genre_column %in% colnames(df)) {
+    stop(paste("La colonna", genre_column, "non esiste nel dataframe"))
+  }
+  
+  # removes useless not required characters
+  df[[genre_column]] <- gsub("\\[|\\]|'", "", df[[genre_column]])
+  
+  # create a list, with div = ,
+  genre_list <- strsplit(df[[genre_column]], split = ",")
+  
+  # extract only the first genre for each line or rename "others"
+  df$first_genre <- sapply(genre_list, function(x) {
+    x <- trimws(x)  # remove blanks
+    if (length(x) == 0 || is.na(x[1]) || x[1] == "") {
+      return("others")
+    } else {
+      return(x[1])
+    }
+  })
+  
+  # convert to categorical value
+  df$first_genre <- as.factor(df$first_genre)
+  
+  # output
+  return(df)
+}
+
+# process and encode the genre column
+process_and_encode_genre <- function(df, genre_column = "first_genre", top_n = 15) {
+  # check if column exists
+  if (!genre_column %in% colnames(df)) {
+    stop(paste("La colonna", genre_column, "non esiste nel dataframe"))
+  }
+  
+  # count the frequency
+  genre_counts <- table(df[[genre_column]])
+  
+  # put them in decrescent order
+  genre_counts_sorted <- sort(genre_counts, decreasing = TRUE)
+  
+  # take top N genres
+  top_genres <- names(genre_counts_sorted)[1:min(top_n, length(genre_counts_sorted))]
+  
+  # rename not in top N into 'others'
+  df[[genre_column]] <- ifelse(
+    df[[genre_column]] %in% top_genres,
+    df[[genre_column]],
+    "others"
+  )
+  
+  # convert
+  df[[genre_column]] <- as.factor(df[[genre_column]])
+  
+  # remove original column
+  if ("spotify_genre" %in% colnames(df)) {
+    df <- subset(df, select = -c(spotify_genre))
+  }
+  
+  # create dummy variables (one-hot encoding)
+  dummy <- dummyVars(paste("~", genre_column), data = df)
+  dummy_df <- data.frame(predict(dummy, newdata = df))
+  
+  final_df <- bind_cols(
+    df %>% select(-all_of(genre_column)),
+    dummy_df
+  )
+  
+  # output
+  return(final_df)
+}
+
+# encode popularity column
+encode_spotify_popularity <- function(df, column = "spotify_track_popularity") {
+  # check if column exists
+  if (!column %in% colnames(df)) {
+    stop(paste("La colonna", column, "non esiste nel dataframe"))
+  }
+  
+  categorize_popularity <- function(x) {
+    if (is.na(x)) return(NA)
+    if (x <= 25) {
+      return("low")
+    } else if (x <= 50) {
+      return("medium")
+    } else if (x <= 75) {
+      return("high")
+    } else if (x <= 100) {
+      return("very high")
+    } else {
+      return(NA)  # out of range
+    }
+  }
+  
+  df[[column]] <- sapply(df[[column]], categorize_popularity)
+  
+  # convert in ordered factor
+  df[[column]] <- factor(df[[column]], 
+                         levels = c("low", "medium", "high", "very high"), 
+                         ordered = TRUE)
+  
+  # output
+  return(df)
+}
+
+# plots the confusion matrix
+plot_conf_matrix <- function(conf_matrix_object, title = "Confusion Matrix") {
+  
+  # converts confusion matrix into dataframe
+  cm_df <- as.data.frame(conf_matrix_object$table)
+  
+  # find columns names (Truth, Prediction, Freq)
+  colnames(cm_df) <- tolower(colnames(cm_df)) # rende tutto minuscolo
+  
+  # rename them
+  names(cm_df)[names(cm_df) %in% c("reference", "truth")] <- "Actual"
+  names(cm_df)[names(cm_df) == "prediction"] <- "Predicted"
+  names(cm_df)[names(cm_df) %in% c("freq", "n")] <- "Freq"
+  
+  # plot
+  p <- ggplot(cm_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+    geom_tile(color = "white", linewidth = 0.5) +
+    geom_text(aes(label = Freq), size = 5, color = "black") +
+    scale_fill_gradient(low = "white", high = "steelblue") +
+    labs(title = title,
+         x = "Predicted Class",
+         y = "Actual Class",
+         fill = "Count") +
+    theme_minimal(base_size = 14) +
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  
+  return(p)
+}
+```
+
+## 1.Import the data
+
+```{r}
+billboard <- read_csv("billboard.csv", 
+                      col_types = cols(
+                        url = col_skip(), 
+                        song = col_skip(),
+                        instance = col_skip()
+                      ))
+print(head(billboard,5))
+```
+
+```{r}
+audio_features <- read_csv("audio_features.csv", 
+                           col_types = cols( 
+                             performer = col_skip(), 
+                             song = col_skip(), 
+                             spotify_track_preview_url = col_skip(),
+                             spotify_track_explicit = col_skip(),
+                             spotify_track_album = col_skip(),
+                             spotify_track_id = col_skip()
+                           ))
+print(head(audio_features,5))
+```
+
+```{r}
+billboard <- na.omit(billboard) # remove all NaN
+audio_features <- as_tibble(audio_features) # translate in a modern and more flexible version
+audio_features <- na.omit(audio_features) # remove all NaN
+
+```
+
+```{r}
+full_data <- left_join(billboard, audio_features, by = "song_id") # merge datasets
+```
+
+## 2.Data exploration and cleaning
+
+```{r}
+glimpse(full_data)
+```
+The dataset consists of 298,117 rows and 22 columns. Each row represents a weekly chart appearance of a song, not a unique song itself — which means the same song may appear multiple times with different `week_id` values.
+
+The columns contain a wide range of information:
+
+- **Chart metadata**: such as `week_id`, `week_position`, `previous_week_position`, `peak_position`, and `weeks_on_chart`.
+- **Song information**: including `performer`, `song_id`, and `spotify_genre`.
+- **Spotify audio features**: such as `danceability`, `energy`, `acousticness`, `valence`, and `tempo`, which describe the musical properties of the tracks.
+- **Additional metadata**: including `spotify_track_duration_ms`, `key`, `mode`, `speechiness`, `instrumentalness`, `liveness`, and `time_signature`.
+- **Popularity**: The column `spotify_track_popularity` provides Spotify's internal popularity score, which can be useful as a target or benchmark in predictive tasks.
+
+It is also important to note that some values are missing (`NA`), especially in Spotify-related fields, likely due to older songs not being available or fully processed on Spotify.
+
+
+```{r}
+summary(full_data)
+```
+This summary provides descriptive statistics for the dataset's variables.
+
+- **Chart-related variables** such as `week_position`, `previous_week_position`, and `peak_position` range from 1 to 100, with a fairly uniform median around 46–47. The number of weeks a song remains on the chart (`weeks_on_chart`) ranges from 2 to 87, with a median of 8 weeks.
+
+- **Track duration** (`spotify_track_duration_ms`) varies significantly, with a median of about 3.75 minutes (225,173 ms) and some outliers over 50 minutes, suggesting the presence of non-standard tracks (e.g., extended versions or errors). Around 13% of entries lack this information (`NA`s).
+
+- **Audio features** (from Spotify) such as `danceability`, `energy`, `valence`, and `tempo` show a wide distribution:
+  - `Danceability` and `energy` have median values around 0.62 and 0.65, respectively, indicating moderately upbeat music on average.
+  - `Valence` (musical positivity) has a median of 0.62, suggesting a tendency toward emotionally positive tracks.
+  - `Tempo` ranges from 0 to over 240 BPM, with a median around 118 BPM, typical of many popular genres.
+
+- **Musical characteristics** such as `key`, `mode`, and `time_signature` confirm that most tracks are in common time (4/4), with keys distributed across the full 0–11 range (representing the 12 semitones).
+
+- **Other audio descriptors**:
+  - `Speechiness` and `instrumentalness` are mostly low, which is expected in mainstream songs.
+  - `Acousticness` and `liveness` show a broader spread, indicating a mix of electronic and live/acoustic content.
+
+- **Popularity** (`spotify_track_popularity`) ranges from 0 to 100, with a median of 51. This variable could be considered as a potential target for prediction tasks. Like many other Spotify features, it has missing values in about 13% of rows.
+
+Overall, this summary confirms that the dataset is rich and varied, but also highlights the need to address missing values (notably in Spotify-provided fields) before modeling or deeper analysis.
+
+
+### 2.1 Missing Values
+
+```{r}
+na_counts <- count_na_per_column_df(full_data)
+print(na_counts)
+```
+
+The original dataset contained 39,819 missing values in various Spotify-related columns (approximately 13% of the total 298,117 rows).
+
+To address this, we applied the following cleaning strategy:
+
+- For the `previous_week_position` variable, missing values were replaced with `0`, under the assumption that songs entering the chart for the first time do not have a previous position.
+
+- For all other missing values, we removed the corresponding rows using `na.omit()`. This resulted in a cleaned dataset (`full_data_clean`) with **258,298 rows** and **22 columns**, preserving the structure while reducing the potential impact of missing or incomplete data on the analysis.
+
+We considered this data loss acceptable, as the percentage of removed rows was relatively small and unlikely to introduce significant bias.
+
+```{r}
+full_data_clean <- full_data
+full_data_clean$previous_week_position[is.na(full_data_clean$previous_week_position)] <- 0 # substitute NaN with 0
+full_data_clean <- na.omit(full_data_clean) # remove all NaN
+
+nrow(full_data_clean)
+ncol(full_data_clean) 
+
+```
+
+### 2.2 Distributions
+
+Distribution of numeric data
+
+```{r}
+numeric_data <- full_data_clean |> select(where(is.numeric))
+
+numeric_data_long <- numeric_data |> pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
+
+# histograms distribution facet
+ggplot(numeric_data_long, aes(x = value)) +
+  geom_histogram(fill = "steelblue", color = "white", bins = 25) +
+  facet_wrap(~ variable, scales = "free", ncol = 3) +  # 3 columns
+  theme_minimal()
+#ggsave("0_numeric_histogram_distribution.png", width = 12, height = 16)
+```
+The histogram grid above shows the distribution of key numerical features in the cleaned dataset. Several observations can be made:
+
+- **Audio features** such as `danceability`, `energy`, and `tempo` tend to follow approximately normal or slightly skewed distributions:
+  - `Danceability` and `energy` peak around 0.6, suggesting that most songs are rhythmically engaging and energetic.
+  - `Tempo` shows a near-normal distribution centered around 120 BPM, which aligns with the typical tempo of pop music.
+
+- `Acousticness`, `instrumentalness`, and `speechiness` are highly right-skewed:
+  - Most songs have low values of `acousticness` and `instrumentalness`, indicating a predominance of electronically produced and vocal-heavy tracks.
+  - `Speechiness` values are concentrated near 0, suggesting that most songs are musical rather than spoken word (e.g., podcasts or rap with high spoken-word content are rare in the dataset).
+
+- **`Loudness`** follows a left-skewed distribution with a peak around -7 to -10 dB, reflecting the mastering norms in popular music.
+
+- **Chart metrics** (`week_position`, `peak_position`) are heavily skewed toward lower values, meaning that only a small fraction of songs reach top positions.
+
+- **`Weeks_on_chart`** shows that the majority of songs stay on the chart for fewer than 15 weeks, with only a few lasting longer than 30 weeks.
+
+- **Categorical-like features** such as `key`, `mode`, and `time_signature` are shown as numerical:
+  - The musical **key** is relatively evenly distributed across the 12 semitones, although some keys (e.g., 0, 5, 7) appear more often.
+  - **Mode** is binary and skewed toward major mode (`1`), reflecting the general preference for major-key music in popular songs.
+  - Most songs use a **time signature** of 4/4 (`4`), which is expected in mainstream music.
+
+- **Spotify-specific features** like `spotify_track_popularity` show a moderately normal distribution of popularity scores, centered around 50.
+
+Others seems to be all clustered in one bin and need to be explored furthermore.
+
+
+QQ plot
+
+```{r QQ-plots, cache=TRUE}
+par(mfrow = c(2, 2))  # cambia a seconda del numero di variabili
+
+for (colname in names(numeric_data)) {
+  qqnorm(numeric_data[[colname]], main = paste("QQ Plot -", colname))
+  qqline(numeric_data[[colname]])
+}
+```
+QQ-plots are used to assess whether a variable follows a normal distribution by comparing observed and theoretical quantiles.
+From the plots, it is evident that none of the features are `perfectly normally distributed`.
+
+
+Distribution of categorical data
+
+```{r}
+categorical_data <- full_data_clean |> select(where(~ !is.numeric(.)))
+
+categorical_data_long <- categorical_data |> pivot_longer(cols = everything(), names_to = "variable", values_to = "value")
+
+# select top 50
+categorical_data_top50 <- categorical_data_long |>
+  group_by(variable, value) |>
+  summarise(count = n(), .groups = "drop") |>
+  group_by(variable) |>
+  slice_max(order_by = count, n = 50)
+
+# barplot distribution facet
+ggplot(categorical_data_top50, aes(x = value, y = count)) +
+  geom_col(fill = "steelblue", color = "white") + 
+  facet_wrap(~ variable, scales = "free", ncol = 2) +
+  theme_minimal() +
+  theme(#axis.text.x = element_text(angle = 45, hjust = 1))
+    axis.text.x = element_blank() )
+#ggsave("0_categorical_histogram_distribution.png", width = 12, height = 16)
+```
+To better understand the categorical variables with high cardinality, we visualized the frequency of the top 50 most common values for each feature:
+
+- `Performer`:  
+  The distribution shows a relatively balanced frequency across the top 50 performers, with a few artists standing out with over 750 occurrences. This suggests that some performers consistently appear in the charts (possibly due to sustained popularity or multiple hit songs), while the rest have moderate chart presence.
+
+- `Song ID`:  
+  Song appearances are fairly uniformly distributed among the top 50 songs, with each appearing between roughly 50 and 100 times. This indicates a fairly even recurrence of popular songs across different weeks, with no single track overwhelmingly dominating the dataset.
+
+- `Spotify Genre`:  
+  The genre distribution is more skewed. A few genres (possibly "pop", "dance pop", or "rap") dominate the top frequencies, with one genre exceeding 12,000 entries—suggesting a strong genre concentration in the dataset. The long tail highlights a wide variety of niche genres with fewer appearances.
+
+- `Week ID`:  
+  The number of records per week appears relatively consistent with some fluctuations. A slight increase toward the middle of the chart could indicate growing data volume or more tracked songs over time. The presence of a few dips may suggest data irregularities, holidays, or temporary drops in chart activity.
+
+
+
+These distributions help us understand the overall composition of the dataset and guide future decisions for modeling and feature engineering.
+
+### 2.3 Cleaning
+
+`instrumentalness`, `time_signature`, `speechiness` and `spotify_track_duration_ms` from the plot seems to be single bin. let's zoom in.
+
+```{r}
+hist(full_data_clean$instrumentalness)
+```
+```{r}
+hist(full_data_clean$time_signature)
+```
+
+```{r}
+hist(full_data_clean$speechiness)
+```
+
+```{r}
+hist(full_data_clean$spotify_track_duration_ms)
+```
+
+`spotify_track_duration_ms` has the majority clustered between 2 to 4 minutes and a few outliers suggesting very long tracks.
+
+From the distribution of `instrumentalness` and `time signature` they seem to be not significant for our purpose. Then we decide to remove them.
+
+```{r}
+full_data_clean <- full_data_clean %>% select(-c(instrumentalness, time_signature))
+```
+
+### 2.4 Outliers
+
+```{r}
+# histograms distribution facet
+ggplot(numeric_data_long, aes(x = value, y = "")) +
+  geom_boxplot(fill = "steelblue") +
+  facet_wrap(~ variable, scales = "free", ncol = 3) + 
+  theme_minimal()
+#ggsave("0_numeric_boxplot_distribution.png", width = 12, height = 16)
+```
+
+Through the boxplots of numerical features, we can observe the presence and distribution of outliers.  
+Below is a summary of the most significant variables:
+
+- **Many outliers are present in:**
+  - `instrumentalness`: all values above zero are marked as outliers. As seen earlier, this is because the vast majority of songs have this value at 0. For this reason, this feature will likely be discarded, as it is not relevant to our analysis.
+  - `speechiness`: several values above 0.3 are considered outliers; this indicates tracks with a strong vocal component (e.g., spoken word, rap).
+  - `spotify_track_duration_ms`: some tracks have extremely long durations (over 2 million milliseconds, i.e., ~30 minutes), which are anomalies compared to the average song length.
+  - `tempo`: some values above 200 BPM are rare and constitute outliers.
+  - `weeks_on_chart`: many points above the upper limit suggest a long chart presence for some songs, though they are not necessarily errors.
+  - `liveness` and `instrumentalness`: show skewed distributions with some extreme values close to 1.
+
+- **Features with few or no outliers:**
+  - `mode` and `key`: these are numerical categorical variables and show compact distributions without real outliers.
+  - `valence`, `danceability`, `energy`, and `acousticness`: these have more regular distributions, with few extreme values.
+
+- **Ordinal features (e.g., `peak_position`, `week_position`, `previous_week_position`)**:  
+  Outliers correspond to songs that ranked very high (low position numbers) or very low (high positions). These are not errors but actual reflections of chart dynamics.
+
+- Some outliers (e.g., excessively long durations or very high `tempo`) could be data entry errors and should be evaluated individually.
+- In other cases, such as `weeks_on_chart` or `speechiness`, outliers reflect real-world behavior (long-lasting hits or spoken tracks).
+
+Depending on the model used, we may:
+- keep the outliers if they make sense from a musical or commercial perspective;
+- normalize or transform them (e.g., log transformation for `spotify_track_duration_ms`);
+- or remove them if they are clearly erroneous or so rare that they distort the results.
+
+### 2.5 Correlations
+
+```{r}
+# compute correlation matrix
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+
+# correlation heatmap
+corrplot(cor_matrix, method = "color", 
+         type = "upper", tl.col = "black", 
+         #number.cex = 0.7, addCoef.col = "black",
+         tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
+#ggsave("0_numeric_heatmap.png", width = 12, height = 16)
+```
+
+The correlation matrix is a powerful tool, especially relevant when working with models where feature independence is important.  
+
+From the matrix, we can observe that, as expected, the three Billboard-related features — `week_position`, `previous_week_position`, and `peak_position` — are strongly correlated with each other. Additionally, `weeks_on_chart` is also correlated, though less strongly and in a negative direction.
+
+All other features show no significant correlations and can be considered independent. The only mild correlation is between `energy` and `acousticness`, which makes sense as more energetic songs tend to have less acoustic content (e.g., louder sounds, stronger beats).
+
+In conclusion, the only significantly correlated features that may pose a problem are the Billboard-related variables.
+
+
+## 3. Global Preprocessing
+Global preprocessing is a crucial step when working with large, heterogeneous datasets like Billboard rankings and Spotify audio features. The raw data is typically recorded at a weekly level and contains many duplicate song entries across time. Without preprocessing, the dataset would be too granular and redundant for most machine learning models or meaningful statistical analysis.
+
+By aggregating the data at the song level, we:
+- **Reduce redundancy**, turning multiple weekly entries into a single representative row per song.
+- **Summarize chart performance** (e.g., best, worst, average position), which better captures a song’s commercial success.
+- **Enable feature merging** by aligning temporal data with static audio features.
+- **Improve model performance** by reducing noise and dimensionality.
+- **Prepare for clean, structured input** for clustering, classification, or regression models.
+
+This step ensures that we work with a consistent and compact dataset that better reflects the properties and success of individual songs, rather than noisy week-by-week fluctuations.
+
+
+### 3.1 Aggregations
+In this step, we aggregate the weekly Billboard data at the song level to obtain summary statistics that represent a song's overall chart performance. This helps reduce redundancy and simplifies analysis by transforming time-series data into one record per song.
+
+
+```{r}
+# new features creation
+billboard_summary <- billboard %>%
+  group_by(song_id) %>%
+  summarise(
+    min_position = min(week_position),
+    max_position = max(week_position),
+    avg_position = mean(week_position),
+    weeks_in_chart = n_distinct(week_id),
+    final_position = last(week_position)
+  )
+
+full_data_aggregate <- merge(billboard_summary, audio_features, by = "song_id", all = FALSE)
+full_data_aggregate <- full_data_aggregate %>% select(-c(instrumentalness, time_signature))
+
+print(head(full_data_aggregate, 5))
+
+```
+The number of rows in each dataset gives an idea of how much data is retained through each step:
+```{r}
+nrow(billboard)
+nrow(billboard_summary)
+nrow(audio_features)
+nrow(full_data)
+nrow(full_data_aggregate)
+```
+
+### 3.2 Add time columns
+Here, we add a `year` column extracted from the `week_id`, which allows for time-based analysis and filtering (e.g., focusing on recent years only).
+```{r}
+full_data_clean <- full_data_clean |>
+  select(colnames(full_data_clean),song_id,week_id)
+
+full_data_clean$year <- as.numeric(sub(".*/.*/", "", full_data_clean$week_id))
+
+head(full_data_clean, 5)
+```
+This `year` column will be useful for temporal segmentation in later steps (e.g., focusing only on the last 25 years).
+
+## 4 Main Question - Given the audio features of a new song, will it become popular?
+
+### 4.1 Regression - predict the position on the billboard
+
+#### Preprocessing
+
+Remove unrelevant features
+
+```{r}
+regression_data <- full_data_aggregate %>% select(-c(song_id, min_position, max_position, avg_position, weeks_in_chart, final_position))
+print(head(regression_data,5))
+```
+
+One hot encoding of the 15 most frequent genre
+
+```{r}
+regression_data
+```
+
+
+```{r}
+regression_data <- extract_first_genre(regression_data)
+regression_data_encoded <- process_and_encode_genre(regression_data, top_n = 15)
+set.seed(45)
+```
+
+```{r}
+regression_data$first_genre <- sapply(regression_data$first_genre, function(x) {
+  # Rimuove i caratteri inutili
+  cleaned <- gsub("\\[|\\]|'", "", x)
+  # Divide in base alla virgola
+  strsplit(cleaned, ",\\s*")[[1]][1]
+})
+
+ggplot(regression_data, aes(x = first_genre)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of the first genre",
+       x = "Genre",
+       y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+As you can see a lot of the genres that are present in the dataset are not really used that much, so we have decided to take the first 15 in order of popularity.
+
+Scaling
+
+```{r}
+regression_data_encoded_scaled <- robustHD::standardize(regression_data_encoded |> select(-spotify_track_popularity))
+
+regression_data_encoded_scaled['spotify_track_popularity'] = regression_data$spotify_track_popularity
+
+regression_data_encoded_scaled
+```
+
+#### Regressions
+
+```{r big-model, cache=TRUE}
+library(tidymodels)
+library(furrr)
+set.seed(45)
+
+plan(multisession, workers = 6)
+
+# 1. Split
+split <- initial_split(regression_data_encoded_scaled, prop = 0.8)
+train_data <- training(split)
+test_data  <- testing(split)
+
+# 2. Recipe
+recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
+# 3. Resampling (non usato direttamente, ma mantenuto)
+cv_folds <- vfold_cv(train_data, v = 5)
+
+# 4. Modelli con parametri fissi
+models <- list(
+  rf = rand_forest(mtry = 5, trees = 500) %>%
+    set_engine("randomForest") %>% set_mode("regression"),
+
+  xgb = boost_tree(trees = 1000, tree_depth = 6, learn_rate = 0.1) %>%
+    set_engine("xgboost") %>% set_mode("regression"),
+
+  knn = nearest_neighbor(neighbors = 7) %>%
+    set_engine("kknn") %>% set_mode("regression")
+)
+
+# 5. Workflow per ciascun modello
+workflows_list <- purrr::imap(models, function(model, name) {
+  workflow() %>%
+    add_model(model) %>%
+    add_recipe(recipe_spec)
+})
+
+# 6. Fit parallelo
+final_models <- furrr::future_map(workflows_list, function(wf) {
+  library(tidymodels)  # necessario dentro il worker
+  fit(wf, data = train_data)
+})
+
+# 7. Predizione + metriche parallele
+results <- furrr::future_map(final_models, ~ {
+  predict(.x, test_data) %>%
+    bind_cols(test_data) %>%
+    metrics(truth = spotify_track_popularity, estimate = .pred)
+})
+
+# 8. Riassunto risultati
+results_df <- bind_rows(results, .id = "model") %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
+
+print(results_df)
+
+# Torna a sequenziale
+plan(sequential)
+```
+
+```{r}
+all_predictions <- purrr::imap(final_models, ~ {
+  predict(.x, test_data) |>
+    bind_cols(test_data) |>
+    mutate(model = .y)
+}) |> bind_rows()
+
+```
+
+```{r}
+min_val <- min(c(all_predictions$spotify_track_popularity, all_predictions$.pred))
+max_val <- max(c(all_predictions$spotify_track_popularity, all_predictions$.pred))
+
+ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
+  geom_point(alpha = 0.4, color = "steelblue") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~model, scales = "free") +
+  labs(
+    title = "Predictions vs Real Values for Models",
+    x = "Real Values (spotify_track_popularity)",
+    y = "Predictions"
+  ) +
+  theme_minimal() +
+  coord_cartesian(xlim = c(min_val, max_val), ylim = c(min_val, max_val))
+
+```
+As you can clearly state from the Regressions above, the model is not predicting well the popularity of the song. All three of the model used in this task have a low performance. The lowest RMSE comes from the Random Forest regressor with a value of 16.8 and is quite high. If the true value of the popularity of one song is 50 that means that our model could predict a value that goes from 31.2 to 66.8 and this is not precise enough for us. Is there a way to improve the model performances reducing the RMSE?
+
+First let's try to understand which features are the most important for our model.
+
+features importance
+
+```{r}
+# VIP plot list
+vip_plots <- list()
+
+# Random Forest
+rf_fit <- extract_fit_parsnip(final_models$rf)
+if (inherits(rf_fit$fit, "randomForest")) {
+  vip_plots$rf <- vip(rf_fit$fit, num_features = 15) + ggtitle("Random Forest")
+}
+
+# XGBoost
+xgb_fit <- extract_fit_parsnip(final_models$xgb)
+if (inherits(xgb_fit$fit, "xgb.Booster")) {
+  vip_plots$xgb <- vip(xgb_fit$fit, num_features = 15) + ggtitle("XGBoost")
+}
+
+# visualize plots
+library(patchwork)
+
+# show them
+if (length(vip_plots) == 2) {
+  vip_plots$rf + vip_plots$xgb
+} else {
+  # if only one is possible
+  vip_plots[[1]]
+}
+```
+The models have identified the same set of features as the most important. Loudness consistently ranks first, followed by the duration of the track in second place. Beyond these common top features, the models prioritize the remaining variables in slightly different orders.
+
+One potential strategy to improve our model's performance is to bin the target variable, popularity, and evaluate whether this transformation enhances predictive accuracy.
+
+We have chosen to divide the popularity scores into four bins, each spanning 25 points, and label them as follows:
+
+- **Low**
+- **Medium**
+- **High**
+- **Very High**
+
+
+### 4.2 Classification- predict which level of popularity
+
+#### Preprocessing
+
+Remove unrelevant features
+
+```{r}
+classification_data <- full_data_aggregate %>% select(-c( song_id, min_position, max_position, avg_position, weeks_in_chart, final_position))
+print(head(classification_data,5))
+```
+
+Encode popularity
+
+```{r}
+classification_data <- encode_spotify_popularity(classification_data)
+
+classification_data <- classification_data |>
+  filter(!is.na(spotify_track_popularity)) 
+```
+
+Encode genre
+
+```{r}
+classification_data <- extract_first_genre(classification_data)
+classification_data <- process_and_encode_genre(classification_data, top_n = 15)
+```
+
+```{r}
+print(head(classification_data,5))
+```
+
+Analyse the correlations
+
+```{r}
+# select only numerical data
+numeric_data_clss <- classification_data |>
+  select(where(is.numeric))
+
+# compute correlation matrix
+cor_matrix <- cor(numeric_data, use = "complete.obs")
+
+# correlation heatmap
+corrplot(cor_matrix, method = "color", 
+         type = "upper", tl.col = "black", 
+         #number.cex = 0.7, addCoef.col = "black",
+         tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
+
+#ggsave("4_regression_heatmap.png", width = 12, height = 16)
+```
+
+Target Distribution
+
+```{r}
+ggplot(classification_data, aes(x = spotify_track_popularity)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Popularity Distribution",
+       x = "Spotify Track Popularity",
+       y = "Counter") +
+  theme_minimal()
+```
+We can see that the target values are not equally represented. This is a problem for our model, as it makes it more difficult to accurately predict songs with very high popularity. The imbalance in the target distribution may cause the model to be biased toward the more frequent categories, reducing its ability to generalize well on underrepresented classes.
+
+split
+
+```{r}
+set.seed(45)
+spotify_train_test <- classification_data |> initial_split(prop =  0.7)
+spotify_train <- training(spotify_train_test) 
+spotify_test  <- testing(spotify_train_test)
+```
+
+#### Classification
+
+Random forest
+
+```{r}
+rand_forest_spec <- 
+  rand_forest(mtry = 5, trees = 200) |>  
+  set_engine('randomForest') |> 
+  set_mode('classification')
+
+rf_recipe = recipe(spotify_track_popularity~.,
+                   data=spotify_train)
+
+rf_wf <- workflow() |> 
+  add_recipe(rf_recipe) |> 
+  add_model(rand_forest_spec)
+
+rf_wf_fit <- rf_wf |> 
+  fit(spotify_train)
+
+rf_wf_fit
+```
+
+```{r}
+spotify_test_rf <- rf_wf_fit |> 
+  augment(spotify_test)
+
+# confusion matrix
+cm_rF <- spotify_test_rf |> 
+  conf_mat(truth = spotify_track_popularity,
+           estimate = .pred_class)
+
+# visualize
+plot_conf_matrix(cm_rF, title = "Confusion Matrix - Classification Random Forest")
+
+```
+
+```{r}
+head(summary(cm_rF),4)
+```
+From this evaluation we can see that binning the target value and transforming this task in a classification problem did not help much. An accuracy just above 53% percent is still a very low performance and not enough for us.
+
+
+```{r}
+rf_wf_fit |> 
+  extract_fit_engine() |> 
+  vip()
+```
+From the feature importance of the model above, we can clearly state that the most important features are still the same as before.
+
+An idea that came into our head while working on this project was that we are mostly interested in predicting the popularity of the new songs that get produced today, not the ones that were published or famous in the 1960s. Maybe if we select only the last 10 years of the dataset, we will have higher accuracy because the taste of the people listening to music will have changed less. After all, the music that was most popular in the 60s is not the same as the one we listen to today.
+
+> Is the music changed over time?
+  
+## 5. Taking only the last 10 years of data, 
+### 5.1 Preprocessing
+  Remove unrelevant features
+```{r}
+data_filtered <- full_data_clean |> select(-c(week_id, week_position, previous_week_position, peak_position, weeks_on_chart))
+```
+
+convert milliseconds in minutes
+```{r}
+data_filtered$spotify_track_duration_min <- data_filtered$spotify_track_duration_ms/60000
+data_filtered <- data_filtered |> select(-c(spotify_track_duration_ms))
+```
+
+Filter the song after 2000
+```{r}
+bound_year = 2010
+
+data_filtered_after <- data_filtered[data_filtered$year >= bound_year & data_filtered$year < 2021, ]
+data_filtered_before <- data_filtered[data_filtered$year < bound_year, ]
+```
+
+encode the most frequent 15 genres for each period
+```{r}
+data_filtered_after_encoded <- extract_first_genre(data_filtered_after) 
+data_filtered_after_encoded <- process_and_encode_genre(data_filtered_after_encoded, top_n = 15)
+
+data_filtered_before_encoded <- extract_first_genre(data_filtered_before) 
+data_filtered_before_encoded <- process_and_encode_genre(data_filtered_before_encoded, top_n = 15)
+```
+
+remove duplicates
+```{r}
+data_filtered_after_encoded$year <- NULL
+data_filtered_after_encoded <- unique(data_filtered_after_encoded)
+data_filtered_before_encoded <- unique(data_filtered_before_encoded)
+```
+
+```{r}
+head(data_filtered_after_encoded,5)
+```
+
+### 5.2 Regression after 2010
+#### Preprocessing
+```{r}
+regression_data_after <- data_filtered_after_encoded |> select(-c(performer, song_id))
+regression_data_after
+```
+
+Scale the features
+```{r}
+#regression_data_after <- robustHD::standardize(regression_data_after |> select(-c( year, spotify_track_popularity)))
+regression_data_after$spotify_track_popularity <- data_filtered_after_encoded$spotify_track_popularity
+regression_data_after <- unique(regression_data_after)
+
+#regression_data_after$year <- data_filtered_after_encoded$ye
+head(regression_data)
+```
+
+#### Regressions
+
+```{r}
+# compute correlation matrix
+cor_matrix <- cor(regression_data_after, use = "complete.obs")
+
+# correlation heatmap
+corrplot(cor_matrix, method = "color", 
+         type = "upper", tl.col = "black", 
+         #number.cex = 0.7, addCoef.col = "black",
+         tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
+```
+From this correlation matrix we can see that the features on which we work are not much correlated with each other. We have only one strong correlation between energy and loudness but that should not be a problem for the models that we are going to use.
+
+```{r small-model, cache=True}
+set.seed(45)
+library(tidymodels)
+library(furrr)
+
+plan(multisession, workers = 6)
+
+# 1. Split
+split <- initial_split(regression_data_after, prop = 0.8)
+train_data <- training(split)
+test_data  <- testing(split)
+
+# 2. Recipe
+recipe_spec <- recipe(spotify_track_popularity ~ ., data = train_data) %>%
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
+# 3. Resampling (non usato qui)
+cv_folds <- vfold_cv(train_data, v = 5)
+
+# 4. Modelli con parametri fissi
+models <- list(
+  rf = rand_forest(mtry = 5, trees = 500) %>%
+    set_engine("randomForest") %>% set_mode("regression"),
+
+  xgb = boost_tree(trees = 1000, tree_depth = 6, learn_rate = 0.1) %>%
+    set_engine("xgboost") %>% set_mode("regression"),
+
+  knn = nearest_neighbor(neighbors = 7) %>%
+    set_engine("kknn") %>% set_mode("regression")
+)
+
+# 5. Workflows
+workflows_list <- purrr::imap(models, function(model, name) {
+  workflow() %>%
+    add_model(model) %>%
+    add_recipe(recipe_spec)
+})
+
+# 6. Fit parallelo
+final_models <- furrr::future_map(workflows_list, function(wf) {
+  library(tidymodels)  # necessario dentro il worker
+  fit(wf, data = train_data)
+})
+
+# 7. Valuta su test set in parallelo
+results <- furrr::future_map(final_models, ~ {
+  predict(.x, test_data) %>%
+    bind_cols(test_data) %>%
+    metrics(truth = spotify_track_popularity, estimate = .pred)
+})
+
+# 8. Riassunto RMSE
+results_df <- bind_rows(results, .id = "model") %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
+
+print(results_df)
+
+# (opzionale) chiudi il cluster
+plan(sequential)
+```
+
+```{r}
+# compute correlation matrix
+cor_matrix <- cor(regression_data_after, use = "complete.obs")
+
+# correlation heatmap
+corrplot(cor_matrix, method = "color", 
+         type = "upper", tl.col = "black", 
+         #number.cex = 0.7, addCoef.col = "black",
+         tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
+
+#ggsave("4_regression_heatmap.png", width = 12, height = 16)
+```
+
+
+```{r}
+all_predictions <- purrr::imap(final_models, ~ {
+  predict(.x, test_data) |>
+    bind_cols(test_data) |>
+    mutate(model = .y)
+}) |> bind_rows()
+
+```
+
+```{r}
+min_val <- min(c(all_predictions$spotify_track_popularity, all_predictions$.pred))
+max_val <- max(c(all_predictions$spotify_track_popularity, all_predictions$.pred))
+
+ggplot(all_predictions, aes(x = spotify_track_popularity, y = .pred)) +
+  geom_point(alpha = 0.4, color = "steelblue") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~model, scales = "free") +
+  labs(
+    title = "Predictions vs Real Values for Models",
+    x = "Real Values (spotify_track_popularity)",
+    y = "Predictions"
+  ) +
+  theme_minimal() +
+  coord_cartesian(xlim = c(min_val, max_val), ylim = c(min_val, max_val))
+
+```
+The new models trained exclusively on songs released between 2010 and 2021 are more accurate than the general ones. This is encouraging, as it shows that we can make more reliable predictions for music from the past 10 years or so.
+
+With these new models, the lowest RMSE is now around 10 — a significant improvement compared to previous results. For example, if we aim to predict a popularity score of 50 for a given song, the model would  return a value between 40 and 60. This range is much more acceptable and useful for practical purposes.
+
+While the predictions are still not perfect, they are clearly better than before.
+
+features importance
+```{r}
+# VIP plot list
+vip_plots <- list()
+
+# Random Forest
+rf_fit <- extract_fit_parsnip(final_models$rf)
+if (inherits(rf_fit$fit, "randomForest")) {
+  vip_plots$rf <- vip(rf_fit$fit, num_features = 15) + ggtitle("Random Forest")
+}
+
+# XGBoost
+xgb_fit <- extract_fit_parsnip(final_models$xgb)
+if (inherits(xgb_fit$fit, "xgb.Booster")) {
+  vip_plots$xgb <- vip(xgb_fit$fit, num_features = 15) + ggtitle("XGBoost")
+}
+
+# visualize plots
+library(patchwork)
+
+# show them
+if (length(vip_plots) == 2) {
+  vip_plots$rf + vip_plots$xgb
+} else {
+  # if only one is possible
+  vip_plots[[1]]
+}
+```
+This new model uses the same features of the initial one so probably would be interesting to explore their behaviour of this data to see if there are patterns that we can recognize
+
+```{r}
+loudness_summary <- full_data_clean %>%
+  group_by(year) %>%
+  summarise(
+    mean_loudness = mean(loudness, na.rm = TRUE),
+    sd_loudness = 3 * sd(loudness, na.rm = TRUE),
+    n = n(),
+    se = sd_loudness / sqrt(n)  # standard error
+  )
+
+ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_ribbon(aes(ymin = mean_loudness - se, ymax = mean_loudness + se), 
+              fill = "lightblue", alpha = 0.4) +
+  labs(title = "Loudness Through the Years",
+       x = "Year", y = "Average Loudness (dB)") +
+  theme_minimal()
+```
+Well for the loudness we can see that after 1990 the loudness inside song had a big rise, this is due to the fact that loud songs are easier to listen with headphones. But one thing that we can notice is that the loudness of the last years is much higher than the loudness before the 1990.
+
+```{r}
+
+loudness_summary <- full_data_clean %>%
+  group_by(year) %>%
+  summarise(
+    mean_loudness = mean(spotify_track_duration_ms, na.rm = TRUE),
+    sd_loudness = 3 * sd(spotify_track_duration_ms, na.rm = TRUE),
+    n = n(),
+    se = sd_loudness / sqrt(n)  # standard error
+  )
+
+ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_ribbon(aes(ymin = mean_loudness - se, ymax = mean_loudness + se), 
+              fill = "lightblue", alpha = 0.4) +
+  labs(title = "Track duration over the Years",
+       x = "Year", y = "track duration (ms)") +
+  theme_minimal()
+
+```
+
+From this graph we can see that the duration of a song between 2010 and 2021 is quite different from the ones before 2010. We can also notice that the duration started increasing strongly after 1960 peaking in the 1990s. However after the 2000s the duration started decreasing rapidly. This forms a really interesting pattern in the evolution of music duration over time.
+
+```{r}
+
+loudness_summary <- full_data_clean %>%
+  group_by(year) %>%
+  summarise(
+    mean_loudness = mean(energy, na.rm = TRUE),
+    sd_loudness = 3 * sd(energy, na.rm = TRUE),
+    n = n(),
+    se = sd_loudness / sqrt(n)  # standard error
+  )
+
+ggplot(loudness_summary, aes(x = year, y = mean_loudness)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_ribbon(aes(ymin = mean_loudness - se, ymax = mean_loudness + se), 
+              fill = "lightblue", alpha = 0.4) +
+  labs(title = "Acousticness over the Years",
+       x = "Year", y = "Acousticness") +
+  theme_minimal()
+
+```
+Also here we see that acousticness between 2010 and 2021 is on average higher than in the past years.
+
+In conclusion, we can observe a significant change in various aspects of songs throughout this historical period. The second half of the 20th century was undoubtedly marked by the emergence of many distinct musical styles, and due to this great variety, it becomes very difficult to build a model that can accurately predict the popularity of a song across the entire timespan.  
+
+It makes much more sense to train smaller models on just a specific portion of this period if we aim to obtain more precise predictions.  
+
+It would also be interesting to apply this approach separately to different continents — or even individual countries — in order to more accurately capture the musical preferences of people living in those regions.
+
+## 6. Have songs from the last ten years become louder than before? We chose to perform this hypothesis test on the loudness because we noticed it was the most important feature among all the audio features of the songs.
+
+### 6.1 Hypothesis test
+#### Preprocessing
+
+Remove unrelevant features
+```{r}
+# selecting only the numeric features
+hypothesis_data_after <- data_filtered_after_encoded |> select(where(is.numeric))
+hypothesis_data_before <- data_filtered_before_encoded |> select(where(is.numeric))
+```
+
+Analyse distribution
+```{r}
+#selecting all the features that are not related to the genre
+numeric_data_after_no_genre <- hypothesis_data_after |>
+  select(1:(ncol(hypothesis_data_after) - 11))
+par(mfrow = c(2,2))
+
+numeric_data_before_no_genre <- hypothesis_data_before |>
+  select(1:(ncol(hypothesis_data_before) - 11))
+```
+
+*After 2000*
+```{r}
+#plotting the QQ plots to show the distribution of the dataset
+par(mfrow = c(2,2))
+for (colname in names(numeric_data_after_no_genre)) {
+  qqnorm(numeric_data_after_no_genre[[colname]], main = paste("QQ Plot -", colname))
+  qqline(numeric_data_after_no_genre[[colname]])
+}
+```
+*Before 2000*
+```{r}
+#plotting the QQ plots to show the distribution of the dataset
+par(mfrow = c(2,2))
+for (colname in names(numeric_data_before_no_genre)) {
+  qqnorm(numeric_data_before_no_genre[[colname]], main = paste("QQ Plot -", colname))
+  qqline(numeric_data_before_no_genre[[colname]])
+}
+```
+
+Based on the QQ plots for the periods before and after 2010, none of the feature distributions appear to be normal. Therefore, to compare the two distributions, we should use the Wilcox test.
+
+#### Hypothesis Test
+```{r}
+#Doing a wilcox test based on the track_duration of the songs
+wilcox.test(
+  hypothesis_data_after$spotify_track_duration_min,
+  hypothesis_data_before$spotify_track_duration_min,
+  alternative = "two.sided"
+)
+
+#filtering the datasets with only the track_duration feature
+loudness_after <- hypothesis_data_after$spotify_track_duration_min
+loudness_before <- hypothesis_data_before$spotify_track_duration_min
+
+
+plot(density(loudness_after), col = "blue", lwd = 2,
+     main = "Spotify track duration min Density: After 2010 vs Before 2010", xlab = "duration")
+lines(density(loudness_before), col = "red", lwd = 2)
+
+legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
+```
+The p-value from this test is very close to the acceptance of H1 but is just to high for us. This could be due to an unlucky case. Anyway we can see that the duration of the tracks after 2010 are more focused on a single mean just under 4 minutes, while the ones before are a bit more spread out between 2 and 4 minutes. Anyway we do not see much difference in the two distributions.
+
+
+```{r}
+#Doing a wilcox test based on the energy of the songs
+wilcox.test(
+  hypothesis_data_after$energy,
+  hypothesis_data_before$energy,
+  alternative = "two.sided"
+)
+
+#filtering the datasets with only the energy feature
+energy_after <- hypothesis_data_after$energy
+energy_before <- hypothesis_data_before$energy
+
+
+plot(density(energy_after), col = "blue", lwd = 2,
+     main = "Energy Density: After 2010 vs Before 2010", xlab = "energy")
+lines(density(energy_before), col = "red", lwd = 2)
+
+legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
+```
+As we can see from the two distributions, they are similar, but the results of the Wilcox test says otherwise, the p-value is less than 0.05, meaning that we need to reject the hypothesis test. In other words, even if the distribution seems the same, the energy of the songs after 2010 are not like the ones released before.
+
+
+```{r}
+#Doing a wilcox test based on the loudness of the songs
+wilcox.test(
+  hypothesis_data_after$loudness,
+  hypothesis_data_before$loudness,
+  alternative = "two.sided"
+)
+
+#filtering the datasets with only the loudness feature
+loudness_after <- hypothesis_data_after$loudness
+loudness_before <- hypothesis_data_before$loudness
+
+
+plot(density(loudness_after), col = "blue", lwd = 2,
+     main = "Loudness Density: After 2010 vs Before 2010", xlab = "loudness")
+lines(density(loudness_before), col = "red", lwd = 2)
+
+legend("topright", legend = c("After 2010", "Before 2010"), col = c("blue", "red"), lwd = 2)
+```
+From what we can see above, the two periods have different distributions, even without looking at the wilcox test, that the outcome of it is less than 0.05, ending up with rejecting the null hypothesis. In other words, the loudness of the songs after 2010 are not like the ones released before.
+
+##Future Improovements
+After all this considerations we can say that there are many aspects that we have not considered. 
+- The Billboard dataset is much more suitable for timeseries analysis but we still do not have the capabilities to do that kind of evaluations.
+- It would be very interesting to try to predict the position of a song in the next future based on his past.
+- Anyway one thing that surely could be added to the dataset used for this project is the year of production of the different songs, this could help us in creating a model that maybe fitted the general period instead of just one snapshot. This way the model would have an helpful reference on which different "styles" or genres were popular in a particular period.
+
+
+##7. Question 2 - As a manager, should I continue to invest in this song given its statistics? Will it remain popular over time?
+
+###7.1 Regression - predict the position on the Billboard
+
+#### Preprocessing
+
+Remove not relevant features
+
+```{r}
+regression_data <- full_data_aggregate %>% select(-c(song_id))
+print(head(regression_data,5))
+```
+
+one hot encoding of the most 15 important genres
+
+```{r}
+regression_data <- extract_first_genre(regression_data)
+regression_data_encoded <- process_and_encode_genre(regression_data, top_n = 15)
+```
+
+```{r}
+print(head(regression_data_encoded, 5))
+```
+
+#### Regression
+
+```{r}
+set.seed(45)
+split <- initial_split(head(regression_data_encoded,100), prop = 0.8)
+train_data <- training(split)
+test_data  <- testing(split)
+
+# recipe
+recipe_spec <- recipe(final_position ~ ., data = train_data) %>%
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
+task = 'regression'
+
+# models
+models <- list(
+  rf = rand_forest(mtry = 5) %>% set_engine("randomForest") %>% set_mode(task),
+  xgb = boost_tree(trees = 100, tree_depth = 10) %>% set_engine("xgboost") %>% set_mode(task),
+  knn = nearest_neighbor(neighbors = 5) %>% set_engine("kknn") %>% set_mode(task)
+)
+
+# workflow
+workflows_list <- purrr::map(models, ~ workflow() %>% add_model(.x) %>% add_recipe(recipe_spec))
+
+# train models
+fitted_models <- purrr::map(workflows_list, ~ fit(.x, data = train_data))
+
+# evaluation
+results <- purrr::map(fitted_models, ~ {
+  predict(.x, test_data) %>%
+    bind_cols(test_data) %>%
+    metrics(truth = final_position, estimate = .pred)
+})
+
+# results
+results_df <- bind_rows(results, .id = "model")
+
+results_df %>%
+  filter(.metric == "rmse") %>%
+  arrange(.estimate)
+
+print(results_df)
+```
+From the results obtained, we can observe that for the models is difficult to predict the exact position of a particular song in the billboard, with an rmse between 20-27%. Even with an error that high, the random forest keep performing better than the others two. With an error like this, if we would try to predict the position of a song, it will have an error of about +-20 places. This highlights the difficulty of the task.
+
+```{r}
+# VIP plot list
+vip_plots <- list()
+
+# Random Forest
+rf_fit <- extract_fit_parsnip(fitted_models$rf)
+if (inherits(rf_fit$fit, "randomForest")) {
+  vip_plots$rf <- vip(rf_fit$fit, num_features = 15) + ggtitle("Random Forest - Variable Importance")
+}
+
+# XGBoost
+xgb_fit <- extract_fit_parsnip(fitted_models$xgb)
+if (inherits(xgb_fit$fit, "xgb.Booster")) {
+  vip_plots$xgb <- vip(xgb_fit$fit, num_features = 15) + ggtitle("XGBoost - Variable Importance")
+}
+
+# visualize plots
+library(patchwork)
+
+# show them
+if (length(vip_plots) == 2) {
+  vip_plots$rf + vip_plots$xgb
+} else {
+  # if only one is possible
+  vip_plots[[1]]
+}
+```
+
+From what we can see here for both models, the average, max and min position are the most important features for predicting the position of a song. The importance of features decrease drastically after the first three for the XGboost model, meaning that they are irrelevant for predicting the position of the song.
+
+###7.2 Classification- predict whether a sign will be in the top 30
+
+#### Preprocessing
+
+```{r}
+classification_data <- full_data_aggregate |> select(-c( song_id))
+print(head(classification_data,5))
+```
+
+Encode popularity
+
+```{r}
+classification_data <- encode_spotify_popularity(classification_data)
+
+classification_data <- classification_data |>
+  filter(!is.na(spotify_track_popularity)) 
+```
+
+Encode genre
+
+```{r}
+classification_data <- extract_first_genre(classification_data)
+classification_data <- process_and_encode_genre(classification_data, top_n = 5)
+```
+
+```{r}
+#print number of NaN for each column
+count_na_per_column_df(classification_data)
+```
+
+```{r}
+#create the new variable top30: whether a song is in the top 30
+classification_data <- classification_data |>
+  mutate(top30 = ifelse(final_position <= 30, 1, 0))
+# remove final_position
+classification_data <- classification_data |> select(-c( final_position))
+print(head(classification_data,5))
+```
+
+```{r}
+
+# select only numerical data
+numeric_data_clss <- numeric_data_clss |>
+  select(where(is.numeric))
+
+# compute correlation matrix
+cor_matrix <- cor(numeric_data_clss, use = "complete.obs")
+
+# correlation heatmap
+corrplot(cor_matrix, method = "color", 
+         type = "upper", tl.col = "black", 
+         #number.cex = 0.7, addCoef.col = "black",
+         tl.cex = 0.8, col = colorRampPalette(c("purple", "white", "cyan"))(100))
+
+#ggsave("4_regression_heatmap.png", width = 12, height = 16)
+```
+
+Overall, we can notice that the strongly correlated features are most likely the ones regarding the position, which are: min position, max position, average position and number of week on chart. In contrast, the audio features and genre-related variables show a low correlation between each others, making them the ideal features to help random forest to learn even more.
+
+
+```{r}
+numeric_data_clss
+```
+
+
+```{r}
+hist(classification_data$top30)
+```
+
+#### Classification
+
+```{r}
+set.seed(42)
+classification_data$top30 <- as.factor(classification_data$top30)
+spotify_train_test <- classification_data |> initial_split(prop =  0.7)
+spotify_train <- training(spotify_train_test) 
+spotify_test  <- testing(spotify_train_test)
+```
+
+```{r}
+rand_forest_spec <- 
+  rand_forest(mtry = 5, trees = 200) |>  
+  set_engine('randomForest') |> 
+  set_mode('classification')
+
+rf_recipe = recipe(top30~.,
+                   data=spotify_train)
+
+rf_wf <- workflow() |> 
+  add_recipe(rf_recipe) |> 
+  add_model(rand_forest_spec)
+
+rf_wf_fit <- rf_wf |> 
+  fit(spotify_train)
+
+rf_wf_fit
+```
+
+```{r}
+spotify_test_rf <- rf_wf_fit |> 
+  augment(spotify_test)
+
+# confusion matrix
+cm_rF <- spotify_test_rf |> 
+  conf_mat(truth = top30,
+           estimate = .pred_class)
+
+# visualize
+plot_conf_matrix(cm_rF, title = "Confusion Matrix - Classification Random Forest")
+```
+
+```{r}
+head(summary(cm_rF),4)
+```
+From what we can see from the confusion matrix and the metrics, the model has an high accuracy, around 90% which is really good. Other than that, it has a really low amount of false negative, making it really good at not missing songs that are in the top 30. Lastly, the models have problems in recongnizing true negative values, in fact, almost 50% of the time it predict that a song is positive while in reality is negative.
+
+
+```{r}
+roc_rF<-roc_curve(spotify_test_rf,
+          top30,
+          .pred_0,event_level = "first")
+roc_rF |> autoplot()
+```
+```{r}
+rf_wf_fit |> 
+  extract_fit_engine() |> 
+  vip()
+```
+From what we can observe in the feature importance plot, the model predict mainly based on the average and minimimum position, followed by the other two positional features (maximum position and number of weeks in the billboard). The limitations of this model is the fact that discriminate new songs, like we say before, this classifier would be used by a "manager" for predicting if songs would stay popular or not.
+
+
+
+
+
+# Conclusion
+In conclusion we can't predict the level of a song with just using the audio feature, because with an RMSE of 16.8, the means predictions could deviate by +-16.8, which is too imprecise for practical use. Same problem with the classification problem, it's too much inaccurate to use it in real world application.
+
+On the other way, we can predict the popularity level of a song if we use both audio features and their recent performance statistics, not perfectly but with an acceptable margin of error.
+
+The songs' features changed over time, like loudness and energy, while just a few didn't change so much, like the track duration.
+
+We tried to develop some models, both for regression and classification, about predicting the position of a song based on the audio features and some positional history records. For the regression model, we end up with a RMSE of 20, making it impossible for real world usage, while the classification model, worked better than we expected, having an accuracy of 90% but with a 50% chanche to classify a song as in top30, while il reality is not.
+
+
+
+
+
